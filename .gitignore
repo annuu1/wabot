@@ -1,4 +1,4 @@
 auth_info
 node_modules
 package-loc*
-uploads
+uploads/*
