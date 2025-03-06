@@ -143,7 +143,7 @@ app.post('/api/start', async (req, res) => {
   if (isSending) return res.json({ status: 'running', message: 'Already sending' });
   isSending = true;
   const result = await sendPendingMessages(
-    campaignId || null, // Null means all campaigns
+    campaignId || null,
     parseInt(batchSize) || 10,
     parseInt(minDelay) || 1000,
     parseInt(maxDelay) || 5000,
@@ -187,13 +187,28 @@ app.get('/api/campaigns', async (req, res) => {
   res.json(campaigns);
 });
 
+// API: Get stats for dashboard
+app.get('/api/stats', async (req, res) => {
+  try {
+    const stats = {
+      totalCampaigns: await Campaign.countDocuments(),
+      pendingMessages: await Message.countDocuments({ status: 'pending' }),
+      sentMessages: await Message.countDocuments({ status: 'sent' }),
+      failedMessages: await Message.countDocuments({ status: 'failed' }),
+    };
+    res.json(stats);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch stats: ' + error.message });
+  }
+});
+
 // Serve frontend
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 // Start server
-const PORT = process.env.PORT || 4000;
+const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
   startBot();

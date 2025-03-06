@@ -1,3 +1,13 @@
+// Tab switching
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(btn.dataset.tab).classList.add('active');
+  });
+});
+
 // Load campaigns into dropdowns
 async function loadCampaigns() {
   try {
@@ -16,12 +26,27 @@ async function loadCampaigns() {
   }
 }
 
+// Load dashboard stats
+async function loadStats() {
+  try {
+    const response = await fetch('/api/stats');
+    const stats = await response.json();
+    document.getElementById('totalCampaigns').textContent = stats.totalCampaigns;
+    document.getElementById('pendingMessages').textContent = stats.pendingMessages;
+    document.getElementById('sentMessages').textContent = stats.sentMessages;
+    document.getElementById('failedMessages').textContent = stats.failedMessages;
+  } catch (error) {
+    console.error('Failed to load stats:', error);
+  }
+}
+
 // Upload form
 document.getElementById('uploadForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const formData = new FormData(e.target);
   const statusDiv = document.getElementById('uploadStatus');
   statusDiv.textContent = 'Uploading...';
+  statusDiv.className = '';
 
   try {
     const response = await fetch('/api/upload', {
@@ -29,17 +54,16 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
       body: formData,
     });
     const data = await response.json();
+    statusDiv.textContent = data.message;
+    statusDiv.className = response.ok ? 'success' : 'error';
     if (response.ok) {
-      statusDiv.textContent = data.message;
       loadPendingMessages();
       loadCampaigns();
-    } else {
-      statusDiv.textContent = `Error: ${data.error}`;
-      statusDiv.classList.add('error');
+      loadStats();
     }
   } catch (error) {
     statusDiv.textContent = `Error: ${error.message}`;
-    statusDiv.classList.add('error');
+    statusDiv.className = 'error';
   }
 });
 
@@ -52,10 +76,11 @@ document.getElementById('startBtn').addEventListener('click', async () => {
     minDelay: formData.get('minDelay'),
     maxDelay: formData.get('maxDelay'),
     breakAfter: formData.get('breakAfter'),
-    breakDuration: formData.get('breakDuration') * 60000, // Convert to ms
+    breakDuration: formData.get('breakDuration') * 60000,
   };
   const statusDiv = document.getElementById('sendStatus');
   statusDiv.textContent = 'Starting...';
+  statusDiv.className = '';
 
   try {
     const response = await fetch('/api/start', {
@@ -64,16 +89,15 @@ document.getElementById('startBtn').addEventListener('click', async () => {
       body: JSON.stringify(settings),
     });
     const data = await response.json();
+    statusDiv.textContent = `Sent ${data.sent || 0} messages (${data.status})`;
+    statusDiv.className = response.ok ? 'success' : 'error';
     if (response.ok) {
-      statusDiv.textContent = `Sent ${data.sent || 0} messages (${data.status})`;
       loadPendingMessages();
-    } else {
-      statusDiv.textContent = `Error: ${data.message}`;
-      statusDiv.classList.add('error');
+      loadStats();
     }
   } catch (error) {
     statusDiv.textContent = `Error: ${error.message}`;
-    statusDiv.classList.add('error');
+    statusDiv.className = 'error';
   }
 });
 
@@ -81,14 +105,18 @@ document.getElementById('startBtn').addEventListener('click', async () => {
 document.getElementById('stopBtn').addEventListener('click', async () => {
   const statusDiv = document.getElementById('sendStatus');
   statusDiv.textContent = 'Stopping...';
+  statusDiv.className = '';
+
   try {
     const response = await fetch('/api/stop', { method: 'POST' });
     const data = await response.json();
     statusDiv.textContent = data.message;
+    statusDiv.className = 'success';
     loadPendingMessages();
+    loadStats();
   } catch (error) {
     statusDiv.textContent = `Error: ${error.message}`;
-    statusDiv.classList.add('error');
+    statusDiv.className = 'error';
   }
 });
 
@@ -100,6 +128,7 @@ document.getElementById('bulkUpdateForm').addEventListener('submit', async (e) =
   const content = formData.get('content');
   const statusDiv = document.getElementById('bulkUpdateStatus');
   statusDiv.textContent = 'Updating...';
+  statusDiv.className = '';
 
   try {
     const response = await fetch('/api/bulk-update', {
@@ -108,16 +137,14 @@ document.getElementById('bulkUpdateForm').addEventListener('submit', async (e) =
       body: JSON.stringify({ campaignId, content }),
     });
     const data = await response.json();
+    statusDiv.textContent = data.message;
+    statusDiv.className = response.ok ? 'success' : 'error';
     if (response.ok) {
-      statusDiv.textContent = data.message;
       loadPendingMessages();
-    } else {
-      statusDiv.textContent = `Error: ${data.error}`;
-      statusDiv.classList.add('error');
     }
   } catch (error) {
     statusDiv.textContent = `Error: ${error.message}`;
-    statusDiv.classList.add('error');
+    statusDiv.className = 'error';
   }
 });
 
@@ -138,7 +165,7 @@ async function loadPendingMessages() {
             ${m.campaignId?.filePath ? '(with file)' : ''}
           </li>
         `).join('')
-      : 'No pending messages';
+      : 'No pending messages for this campaign';
   } catch (error) {
     list.innerHTML = `Error: ${error.message}`;
   }
@@ -150,3 +177,4 @@ document.getElementById('filterCampaign').addEventListener('change', loadPending
 // Initial load
 loadCampaigns();
 loadPendingMessages();
+loadStats();
