@@ -5,10 +5,9 @@ const messageSchema = new mongoose.Schema({
   phoneNumber: { type: String, required: true },
   content: { type: String, required: true },
   status: { type: String, enum: ['pending', 'sent', 'delivered', 'failed'], default: 'pending' },
-  sentAt: { type: Date },
+  sentAt: Date,
+  filePath: String, // Path to uploaded file
+  fileType: String, // 'image' or 'document'
 });
 
 module.exports = mongoose.model('Message', messageSchema);
-
-
-

@@ -1,28 +1,42 @@
 body {
-    font-family: Arial, sans-serif;
-    max-width: 600px;
-    margin: 20px auto;
-    padding: 20px;
-  }
-  label, input, textarea {
-    display: block;
-    margin: 10px 0;
-  }
-  input, textarea {
-    width: 100%;
-    padding: 8px;
-  }
-  button {
-    padding: 10px;
-    background-color: #25D366;
-    color: white;
-    border: none;
-    cursor: pointer;
-  }
-  button:hover {
-    background-color: #1ebe57;
-  }
-  #status {
-    margin-top: 20px;
-    color: green;
-  }
+  font-family: Arial, sans-serif;
+  max-width: 800px;
+  margin: 20px auto;
+  padding: 20px;
+}
+section {
+  margin-bottom: 30px;
+}
+label, input, textarea {
+  display: block;
+  margin: 10px 0;
+}
+input, textarea {
+  width: 100%;
+  padding: 8px;
+}
+button {
+  padding: 10px;
+  background-color: #25D366;
+  color: white;
+  border: none;
+  cursor: pointer;
+}
+button:hover {
+  background-color: #1ebe57;
+}
+#uploadStatus, #sendStatus {
+  margin-top: 10px;
+  color: green;
+}
+.error {
+  color: red;
+}
+#pendingList {
+  list-style: none;
+  padding: 0;
+}
+#pendingList li {
+  padding: 5px;
+  border-bottom: 1px solid #ddd;
+}
