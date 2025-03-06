@@ -40,3 +40,18 @@ button:hover {
   padding: 5px;
   border-bottom: 1px solid #ddd;
 }
+/* Existing styles unchanged, adding for edit functionality */
+.editContent {
+  width: 60%;
+  margin-right: 10px;
+}
+#pendingList li button {
+  padding: 5px;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  cursor: pointer;
+}
+#pendingList li button:hover {
+  background-color: #0056b3;
+}

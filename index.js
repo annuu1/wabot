@@ -12,6 +12,7 @@ const Message = require('./models/Message');
 
 const app = express();
 let sock;
+let isSending = false; // Global flag to control sending
 
 // Middleware
 app.use(bodyParser.json());
@@ -49,11 +50,16 @@ async function startBot() {
 // Send pending messages with custom settings
 async function sendPendingMessages(batchSize = 10, minDelay = 1000, maxDelay = 5000, breakAfter = 50, breakDuration = 600000) {
   if (!sock) return { status: 'error', message: 'WhatsApp not connected' };
-  
+  if (!isSending) return { status: 'stopped', message: 'Sending stopped' };
+
   const pendingMessages = await Message.find({ status: 'pending' }).populate('customerId').limit(batchSize);
   let sentCount = 0;
 
   for (const msg of pendingMessages) {
+    if (!isSending) {
+      console.log('Sending stopped by user');
+      return { status: 'stopped', sent: sentCount, message: 'Sending interrupted' };
+    }
     try {
       const jid = `${msg.phoneNumber}@s.whatsapp.net`;
       const messageContent = msg.filePath ? { [msg.fileType]: { url: msg.filePath }, caption: msg.content } : { text: msg.content };
@@ -112,16 +118,18 @@ app.post('/api/upload', upload.fields([{ name: 'csvFile' }, { name: 'mediaFile' 
         });
         await message.save();
       }
-      fs.unlinkSync(csvFile.path); // Clean up CSV file
+      fs.unlinkSync(csvFile.path);
       if (mediaFile) fs.renameSync(mediaFile.path, path.join(__dirname, 'uploads', mediaFile.filename));
       res.status(201).json({ message: `${phoneNumbers.length} numbers added` });
     })
     .on('error', (error) => res.status(500).json({ error: 'CSV parsing failed: ' + error.message }));
 });
 
-// API: Send pending messages with settings
-app.post('/api/send', async (req, res) => {
+// API: Start sending
+app.post('/api/start', async (req, res) => {
   const { batchSize, minDelay, maxDelay, breakAfter, breakDuration } = req.body;
+  if (isSending) return res.json({ status: 'running', message: 'Already sending' });
+  isSending = true;
   const result = await sendPendingMessages(
     parseInt(batchSize) || 10,
     parseInt(minDelay) || 1000,
@@ -129,7 +137,32 @@ app.post('/api/send', async (req, res) => {
     parseInt(breakAfter) || 50,
     parseInt(breakDuration) || 600000
   );
+  isSending = false; // Reset when done
   res.json(result);
+});
+
+// API: Stop sending
+app.post('/api/stop', (req, res) => {
+  isSending = false;
+  res.json({ status: 'stopped', message: 'Sending stopped' });
+});
+
+// API: Update message content
+app.put('/api/message/:id', async (req, res) => {
+  const { id } = req.params;
+  const { content } = req.body;
+  if (!content) return res.status(400).json({ error: 'Content is required' });
+  try {
+    const message = await Message.findById(id);
+    if (!message || message.status !== 'pending') {
+      return res.status(404).json({ error: 'Message not found or not editable' });
+    }
+    message.content = content;
+    await message.save();
+    res.json({ message: 'Content updated' });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to update: ' + error.message });
+  }
 });
 
 // API: Get pending messages
