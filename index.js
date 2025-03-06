@@ -48,12 +48,14 @@ async function startBot() {
   sock.ev.on('creds.update', saveCreds);
 }
 
-// Send pending messages with custom settings
-async function sendPendingMessages(batchSize = 10, minDelay = 1000, maxDelay = 5000, breakAfter = 50, breakDuration = 600000) {
+// Send pending messages with custom settings and campaign filter
+async function sendPendingMessages(campaignId, batchSize = 10, minDelay = 1000, maxDelay = 5000, breakAfter = 50, breakDuration = 600000) {
   if (!sock) return { status: 'error', message: 'WhatsApp not connected' };
   if (!isSending) return { status: 'stopped', message: 'Sending stopped' };
 
-  const pendingMessages = await Message.find({ status: 'pending' }).populate('customerId campaignId').limit(batchSize);
+  const query = { status: 'pending' };
+  if (campaignId) query.campaignId = campaignId;
+  const pendingMessages = await Message.find(query).populate('customerId campaignId').limit(batchSize);
   let sentCount = 0;
 
   for (const msg of pendingMessages) {
@@ -71,7 +73,7 @@ async function sendPendingMessages(batchSize = 10, minDelay = 1000, maxDelay = 5
       msg.status = 'sent';
       msg.sentAt = new Date();
       await msg.save();
-      console.log(`Sent to ${msg.phoneNumber}: ${msg.campaignId.content}`);
+      console.log(`Sent to ${msg.phoneNumber}: ${msg.campaignId.content} (Campaign: ${msg.campaignId.name})`);
       sentCount++;
 
       if (sentCount % breakAfter === 0 && sentCount < pendingMessages.length) {
@@ -135,12 +137,13 @@ app.post('/api/upload', upload.fields([{ name: 'csvFile' }, { name: 'mediaFile' 
     .on('error', (error) => res.status(500).json({ error: 'CSV parsing failed: ' + error.message }));
 });
 
-// API: Start sending
+// API: Start sending with campaign filter
 app.post('/api/start', async (req, res) => {
-  const { batchSize, minDelay, maxDelay, breakAfter, breakDuration } = req.body;
+  const { campaignId, batchSize, minDelay, maxDelay, breakAfter, breakDuration } = req.body;
   if (isSending) return res.json({ status: 'running', message: 'Already sending' });
   isSending = true;
   const result = await sendPendingMessages(
+    campaignId || null, // Null means all campaigns
     parseInt(batchSize) || 10,
     parseInt(minDelay) || 1000,
     parseInt(maxDelay) || 5000,
@@ -157,24 +160,31 @@ app.post('/api/stop', (req, res) => {
   res.json({ status: 'stopped', message: 'Sending stopped' });
 });
 
-// API: Bulk update message content by status
+// API: Bulk update message content by campaign
 app.put('/api/bulk-update', async (req, res) => {
-  const { status = 'pending', content } = req.body;
-  if (!content) return res.status(400).json({ error: 'Content is required' });
+  const { campaignId, content } = req.body;
+  if (!content || !campaignId) return res.status(400).json({ error: 'Campaign ID and content are required' });
   try {
-    const messages = await Message.find({ status }).populate('campaignId');
-    const campaignIds = [...new Set(messages.map(m => m.campaignId?._id?.toString()).filter(id => id))];
-    await Campaign.updateMany({ _id: { $in: campaignIds } }, { content });
-    res.json({ message: `${campaignIds.length} campaigns updated for status ${status}` });
+    await Campaign.updateOne({ _id: campaignId }, { content });
+    res.json({ message: `Campaign updated` });
   } catch (error) {
     res.status(500).json({ error: 'Failed to update: ' + error.message });
   }
 });
 
-// API: Get pending messages
+// API: Get pending messages with campaign filter
 app.get('/api/pending', async (req, res) => {
-  const pending = await Message.find({ status: 'pending' }).populate('customerId campaignId');
+  const { campaignId } = req.query;
+  const query = { status: 'pending' };
+  if (campaignId) query.campaignId = campaignId;
+  const pending = await Message.find(query).populate('customerId campaignId');
   res.json(pending);
+});
+
+// API: Get all campaigns
+app.get('/api/campaigns', async (req, res) => {
+  const campaigns = await Campaign.find();
+  res.json(campaigns);
 });
 
 // Serve frontend

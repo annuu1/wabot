@@ -28,6 +28,10 @@
   <section>
     <h2>Send Pending Messages</h2>
     <form id="sendForm">
+      <label for="sendCampaign">Campaign:</label>
+      <select id="sendCampaign" name="campaignId">
+        <option value="">All Campaigns</option>
+      </select>
       <label for="batchSize">Messages per Batch:</label>
       <input type="number" id="batchSize" name="batchSize" value="10" min="1" required>
       <label for="minDelay">Min Delay (ms):</label>
@@ -47,10 +51,9 @@
   <section>
     <h2>Bulk Update Messages</h2>
     <form id="bulkUpdateForm">
-      <label for="bulkStatus">Status to Update:</label>
-      <select id="bulkStatus" name="status">
-        <option value="pending" selected>Pending</option>
-        <option value="failed">Failed</option>
+      <label for="bulkCampaign">Campaign:</label>
+      <select id="bulkCampaign" name="campaignId" required>
+        <option value="">Select a Campaign</option>
       </select>
       <label for="bulkContent">New Message Content:</label>
       <textarea id="bulkContent" name="content" required></textarea>
@@ -61,6 +64,10 @@
 
   <section>
     <h2>Pending Messages</h2>
+    <label for="filterCampaign">Filter by Campaign:</label>
+    <select id="filterCampaign">
+      <option value="">All Campaigns</option>
+    </select>
     <ul id="pendingList"></ul>
   </section>
 
