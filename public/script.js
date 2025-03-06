@@ -16,20 +16,24 @@ async function loadCampaigns() {
     const sendDropdown = document.getElementById('sendCampaign');
     const bulkDropdown = document.getElementById('bulkCampaign');
     const filterDropdown = document.getElementById('filterCampaign');
+    const dashboardDropdown = document.getElementById('dashboardCampaign');
 
     const options = campaigns.map(c => `<option value="${c._id}">${c.name}</option>`).join('');
     sendDropdown.innerHTML = '<option value="">All Campaigns</option>' + options;
     bulkDropdown.innerHTML = '<option value="">Select a Campaign</option>' + options;
     filterDropdown.innerHTML = '<option value="">All Campaigns</option>' + options;
+    dashboardDropdown.innerHTML = '<option value="">All Campaigns</option>' + options;
   } catch (error) {
     console.error('Failed to load campaigns:', error);
   }
 }
 
-// Load dashboard stats
+// Load dashboard stats with campaign filter
 async function loadStats() {
+  const campaignId = document.getElementById('dashboardCampaign').value;
   try {
-    const response = await fetch('/api/stats');
+    const url = campaignId ? `/api/stats?campaignId=${campaignId}` : '/api/stats';
+    const response = await fetch(url);
     const stats = await response.json();
     document.getElementById('totalCampaigns').textContent = stats.totalCampaigns;
     document.getElementById('pendingMessages').textContent = stats.pendingMessages;
@@ -141,6 +145,7 @@ document.getElementById('bulkUpdateForm').addEventListener('submit', async (e) =
     statusDiv.className = response.ok ? 'success' : 'error';
     if (response.ok) {
       loadPendingMessages();
+      loadStats();
     }
   } catch (error) {
     statusDiv.textContent = `Error: ${error.message}`;
@@ -171,8 +176,9 @@ async function loadPendingMessages() {
   }
 }
 
-// Filter pending messages on campaign change
+// Filter pending messages and dashboard stats on campaign change
 document.getElementById('filterCampaign').addEventListener('change', loadPendingMessages);
+document.getElementById('dashboardCampaign').addEventListener('change', loadStats);
 
 // Initial load
 loadCampaigns();

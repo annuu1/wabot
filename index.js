@@ -187,14 +187,15 @@ app.get('/api/campaigns', async (req, res) => {
   res.json(campaigns);
 });
 
-// API: Get stats for dashboard
+// API: Get stats for dashboard with campaign filter
 app.get('/api/stats', async (req, res) => {
+  const { campaignId } = req.query;
   try {
     const stats = {
       totalCampaigns: await Campaign.countDocuments(),
-      pendingMessages: await Message.countDocuments({ status: 'pending' }),
-      sentMessages: await Message.countDocuments({ status: 'sent' }),
-      failedMessages: await Message.countDocuments({ status: 'failed' }),
+      pendingMessages: await Message.countDocuments(campaignId ? { status: 'pending', campaignId } : { status: 'pending' }),
+      sentMessages: await Message.countDocuments(campaignId ? { status: 'sent', campaignId } : { status: 'sent' }),
+      failedMessages: await Message.countDocuments(campaignId ? { status: 'failed', campaignId } : { status: 'failed' }),
     };
     res.json(stats);
   } catch (error) {
