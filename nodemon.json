@@ -1,0 +1,9 @@
+{
+    "ignore": [
+      "node_modules/*",
+      "*.log",
+      "db/*",
+      "qr.png",
+      "auth_info/*"
+    ]
+  }

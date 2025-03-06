@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WhatsApp Bot</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <h1>WhatsApp Bot Control</h1>
+  <form id="messageForm">
+    <label for="phoneNumber">Phone Number:</label>
+    <input type="text" id="phoneNumber" name="phoneNumber" placeholder="919876543210" required>
+    <label for="name">Name (optional):</label>
+    <input type="text" id="name" name="name" placeholder="John Doe">
+    <label for="messageContent">Message:</label>
+    <textarea id="messageContent" name="messageContent" required></textarea>
+    <button type="submit">Send Message</button>
+  </form>
+  <div id="status"></div>
+  <script src="script.js"></script>
+</body>
+</html>
