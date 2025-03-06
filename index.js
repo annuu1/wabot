@@ -9,10 +9,11 @@ const fs = require('fs');
 const csv = require('csv-parse');
 const Customer = require('./models/Customer');
 const Message = require('./models/Message');
+const Campaign = require('./models/Campaign');
 
 const app = express();
 let sock;
-let isSending = false; // Global flag to control sending
+let isSending = false;
 
 // Middleware
 app.use(bodyParser.json());
@@ -52,7 +53,7 @@ async function sendPendingMessages(batchSize = 10, minDelay = 1000, maxDelay = 5
   if (!sock) return { status: 'error', message: 'WhatsApp not connected' };
   if (!isSending) return { status: 'stopped', message: 'Sending stopped' };
 
-  const pendingMessages = await Message.find({ status: 'pending' }).populate('customerId').limit(batchSize);
+  const pendingMessages = await Message.find({ status: 'pending' }).populate('customerId campaignId').limit(batchSize);
   let sentCount = 0;
 
   for (const msg of pendingMessages) {
@@ -61,13 +62,16 @@ async function sendPendingMessages(batchSize = 10, minDelay = 1000, maxDelay = 5
       return { status: 'stopped', sent: sentCount, message: 'Sending interrupted' };
     }
     try {
+      if (!msg.campaignId) throw new Error('No campaign associated with message');
       const jid = `${msg.phoneNumber}@s.whatsapp.net`;
-      const messageContent = msg.filePath ? { [msg.fileType]: { url: msg.filePath }, caption: msg.content } : { text: msg.content };
+      const messageContent = msg.campaignId.filePath
+        ? { [msg.campaignId.fileType]: { url: msg.campaignId.filePath }, caption: msg.campaignId.content }
+        : { text: msg.campaignId.content };
       await sock.sendMessage(jid, messageContent);
       msg.status = 'sent';
       msg.sentAt = new Date();
       await msg.save();
-      console.log(`Sent to ${msg.phoneNumber}: ${msg.content}`);
+      console.log(`Sent to ${msg.phoneNumber}: ${msg.campaignId.content}`);
       sentCount++;
 
       if (sentCount % breakAfter === 0 && sentCount < pendingMessages.length) {
@@ -86,15 +90,23 @@ async function sendPendingMessages(batchSize = 10, minDelay = 1000, maxDelay = 5
   return { status: 'success', sent: sentCount };
 }
 
-// API: Upload CSV and optional file
+// API: Upload CSV and create campaign
 app.post('/api/upload', upload.fields([{ name: 'csvFile' }, { name: 'mediaFile' }]), async (req, res) => {
-  const { messageContent } = req.body;
+  const { messageContent, campaignName } = req.body;
   const csvFile = req.files['csvFile']?.[0];
   const mediaFile = req.files['mediaFile']?.[0];
 
-  if (!csvFile || !messageContent) {
-    return res.status(400).json({ error: 'CSV file and message content are required' });
+  if (!csvFile || !messageContent || !campaignName) {
+    return res.status(400).json({ error: 'CSV file, message content, and campaign name are required' });
   }
+
+  const campaign = new Campaign({
+    name: campaignName,
+    content: messageContent,
+    filePath: mediaFile ? path.join(__dirname, 'uploads', mediaFile.filename) : null,
+    fileType: mediaFile ? (mediaFile.mimetype.startsWith('image') ? 'image' : 'document') : null,
+  });
+  await campaign.save();
 
   const phoneNumbers = [];
   fs.createReadStream(csvFile.path)
@@ -111,16 +123,14 @@ app.post('/api/upload', upload.fields([{ name: 'csvFile' }, { name: 'mediaFile' 
         }
         const message = new Message({
           customerId: customer._id,
+          campaignId: campaign._id,
           phoneNumber,
-          content: messageContent,
-          filePath: mediaFile ? path.join(__dirname, 'uploads', mediaFile.filename) : null,
-          fileType: mediaFile ? (mediaFile.mimetype.startsWith('image') ? 'image' : 'document') : null,
         });
         await message.save();
       }
       fs.unlinkSync(csvFile.path);
       if (mediaFile) fs.renameSync(mediaFile.path, path.join(__dirname, 'uploads', mediaFile.filename));
-      res.status(201).json({ message: `${phoneNumbers.length} numbers added` });
+      res.status(201).json({ message: `${phoneNumbers.length} numbers added to campaign "${campaignName}"` });
     })
     .on('error', (error) => res.status(500).json({ error: 'CSV parsing failed: ' + error.message }));
 });
@@ -137,7 +147,7 @@ app.post('/api/start', async (req, res) => {
     parseInt(breakAfter) || 50,
     parseInt(breakDuration) || 600000
   );
-  isSending = false; // Reset when done
+  isSending = false;
   res.json(result);
 });
 
@@ -147,19 +157,15 @@ app.post('/api/stop', (req, res) => {
   res.json({ status: 'stopped', message: 'Sending stopped' });
 });
 
-// API: Update message content
-app.put('/api/message/:id', async (req, res) => {
-  const { id } = req.params;
-  const { content } = req.body;
+// API: Bulk update message content by status
+app.put('/api/bulk-update', async (req, res) => {
+  const { status = 'pending', content } = req.body;
   if (!content) return res.status(400).json({ error: 'Content is required' });
   try {
-    const message = await Message.findById(id);
-    if (!message || message.status !== 'pending') {
-      return res.status(404).json({ error: 'Message not found or not editable' });
-    }
-    message.content = content;
-    await message.save();
-    res.json({ message: 'Content updated' });
+    const messages = await Message.find({ status }).populate('campaignId');
+    const campaignIds = [...new Set(messages.map(m => m.campaignId?._id?.toString()).filter(id => id))];
+    await Campaign.updateMany({ _id: { $in: campaignIds } }, { content });
+    res.json({ message: `${campaignIds.length} campaigns updated for status ${status}` });
   } catch (error) {
     res.status(500).json({ error: 'Failed to update: ' + error.message });
   }
@@ -167,7 +173,7 @@ app.put('/api/message/:id', async (req, res) => {
 
 // API: Get pending messages
 app.get('/api/pending', async (req, res) => {
-  const pending = await Message.find({ status: 'pending' }).populate('customerId');
+  const pending = await Message.find({ status: 'pending' }).populate('customerId campaignId');
   res.json(pending);
 });
 

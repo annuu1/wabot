@@ -12,6 +12,8 @@
   <section>
     <h2>Upload Leads</h2>
     <form id="uploadForm" enctype="multipart/form-data">
+      <label for="campaignName">Campaign Name:</label>
+      <input type="text" id="campaignName" name="campaignName" required>
       <label for="csvFile">Upload CSV (phoneNumber,name):</label>
       <input type="file" id="csvFile" name="csvFile" accept=".csv" required>
       <label for="messageContent">Message:</label>
@@ -40,6 +42,21 @@
       <button type="button" id="stopBtn">Stop Sending</button>
     </form>
     <div id="sendStatus"></div>
+  </section>
+
+  <section>
+    <h2>Bulk Update Messages</h2>
+    <form id="bulkUpdateForm">
+      <label for="bulkStatus">Status to Update:</label>
+      <select id="bulkStatus" name="status">
+        <option value="pending" selected>Pending</option>
+        <option value="failed">Failed</option>
+      </select>
+      <label for="bulkContent">New Message Content:</label>
+      <textarea id="bulkContent" name="content" required></textarea>
+      <button type="submit">Update All</button>
+    </form>
+    <div id="bulkUpdateStatus"></div>
   </section>
 
   <section>
