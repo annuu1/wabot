@@ -7,11 +7,15 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const csv = require('csv-parse');
+const WebSocket = require('ws');
+const http = require('http');
 const Customer = require('./models/Customer');
 const Message = require('./models/Message');
 const Campaign = require('./models/Campaign');
 
 const app = express();
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
 let sock;
 let isSending = false;
 
@@ -24,6 +28,21 @@ const upload = multer({ dest: 'uploads/' });
 mongoose.connect('mongodb+srv://krao53127:Pinkcity%407557@cluster0.sgxwf.mongodb.net/?retryWrites=true&w=majority')
   .then(() => console.log('MongoDB connected'))
   .catch(err => console.error('MongoDB connection error:', err));
+
+// WebSocket broadcast function
+function broadcastStats(campaignId = null) {
+  wss.clients.forEach(async (client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      const stats = {
+        totalCampaigns: await Campaign.countDocuments(),
+        pendingMessages: await Message.countDocuments(campaignId ? { status: 'pending', campaignId } : { status: 'pending' }),
+        sentMessages: await Message.countDocuments(campaignId ? { status: 'sent', campaignId } : { status: 'sent' }),
+        failedMessages: await Message.countDocuments(campaignId ? { status: 'failed', campaignId } : { status: 'failed' }),
+      };
+      client.send(JSON.stringify({ type: 'stats', data: stats }));
+    }
+  });
+}
 
 // Initialize WhatsApp bot
 async function startBot() {
@@ -75,6 +94,7 @@ async function sendPendingMessages(campaignId, batchSize = 10, minDelay = 1000, 
       await msg.save();
       console.log(`Sent to ${msg.phoneNumber}: ${msg.campaignId.content} (Campaign: ${msg.campaignId.name})`);
       sentCount++;
+      broadcastStats(campaignId);
 
       if (sentCount % breakAfter === 0 && sentCount < pendingMessages.length) {
         console.log(`Taking a break for ${breakDuration / 60000} minutes...`);
@@ -87,6 +107,7 @@ async function sendPendingMessages(campaignId, batchSize = 10, minDelay = 1000, 
       console.error(`Failed to send to ${msg.phoneNumber}:`, error);
       msg.status = 'failed';
       await msg.save();
+      broadcastStats(campaignId);
     }
   }
   return { status: 'success', sent: sentCount };
@@ -133,6 +154,7 @@ app.post('/api/upload', upload.fields([{ name: 'csvFile' }, { name: 'mediaFile' 
       fs.unlinkSync(csvFile.path);
       if (mediaFile) fs.renameSync(mediaFile.path, path.join(__dirname, 'uploads', mediaFile.filename));
       res.status(201).json({ message: `${phoneNumbers.length} numbers added to campaign "${campaignName}"` });
+      broadcastStats();
     })
     .on('error', (error) => res.status(500).json({ error: 'CSV parsing failed: ' + error.message }));
 });
@@ -158,6 +180,7 @@ app.post('/api/start', async (req, res) => {
 app.post('/api/stop', (req, res) => {
   isSending = false;
   res.json({ status: 'stopped', message: 'Sending stopped' });
+  broadcastStats();
 });
 
 // API: Bulk update message content by campaign
@@ -167,6 +190,7 @@ app.put('/api/bulk-update', async (req, res) => {
   try {
     await Campaign.updateOne({ _id: campaignId }, { content });
     res.json({ message: `Campaign updated` });
+    broadcastStats(campaignId);
   } catch (error) {
     res.status(500).json({ error: 'Failed to update: ' + error.message });
   }
@@ -203,14 +227,44 @@ app.get('/api/stats', async (req, res) => {
   }
 });
 
+// API: Delete a campaign and its messages
+app.delete('/api/campaign/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const campaign = await Campaign.findById(id);
+    if (!campaign) return res.status(404).json({ error: 'Campaign not found' });
+    await Message.deleteMany({ campaignId: id });
+    await Campaign.deleteOne({ _id: id });
+    if (campaign.filePath) fs.unlinkSync(campaign.filePath);
+    res.json({ message: `Campaign "${campaign.name}" and its messages deleted` });
+    broadcastStats();
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to delete campaign: ' + error.message });
+  }
+});
+
+// API: Delete a single message
+app.delete('/api/message/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const message = await Message.findById(id);
+    if (!message) return res.status(404).json({ error: 'Message not found' });
+    await Message.deleteOne({ _id: id });
+    res.json({ message: `Message to ${message.phoneNumber} deleted` });
+    broadcastStats(message.campaignId);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to delete message: ' + error.message });
+  }
+});
+
 // Serve frontend
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 // Start server
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
+const PORT = process.env.PORT || 4000;
+server.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
   startBot();
 });

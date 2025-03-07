@@ -97,6 +97,14 @@ button:hover {
   background-color: #1ebe57;
 }
 
+.delete-btn {
+  background-color: #dc3545;
+}
+
+.delete-btn:hover {
+  background-color: #c82333;
+}
+
 .button-group {
   display: flex;
   gap: 10px;
@@ -141,6 +149,15 @@ button:hover {
   padding: 8px;
   border-bottom: 1px solid #eee;
   word-break: break-word;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+#pendingList li button {
+  padding: 5px 10px;
+  font-size: 0.8em;
+  width: auto;
 }
 
 #dashboard .stats {

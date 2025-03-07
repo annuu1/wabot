@@ -29,8 +29,7 @@ async function loadCampaigns() {
 }
 
 // Load dashboard stats with campaign filter
-async function loadStats() {
-  const campaignId = document.getElementById('dashboardCampaign').value;
+async function loadStats(campaignId = '') {
   try {
     const url = campaignId ? `/api/stats?campaignId=${campaignId}` : '/api/stats';
     const response = await fetch(url);
@@ -43,6 +42,21 @@ async function loadStats() {
     console.error('Failed to load stats:', error);
   }
 }
+
+// WebSocket connection
+const ws = new WebSocket(`ws://localhost:${location.port}`);
+ws.onmessage = (event) => {
+  const { type, data } = JSON.parse(event.data);
+  if (type === 'stats') {
+    const campaignId = document.getElementById('dashboardCampaign').value;
+    if (!campaignId || campaignId === data.campaignId) {
+      document.getElementById('totalCampaigns').textContent = data.totalCampaigns;
+      document.getElementById('pendingMessages').textContent = data.pendingMessages;
+      document.getElementById('sentMessages').textContent = data.sentMessages;
+      document.getElementById('failedMessages').textContent = data.failedMessages;
+    }
+  }
+};
 
 // Upload form
 document.getElementById('uploadForm').addEventListener('submit', async (e) => {
@@ -97,7 +111,6 @@ document.getElementById('startBtn').addEventListener('click', async () => {
     statusDiv.className = response.ok ? 'success' : 'error';
     if (response.ok) {
       loadPendingMessages();
-      loadStats();
     }
   } catch (error) {
     statusDiv.textContent = `Error: ${error.message}`;
@@ -117,7 +130,6 @@ document.getElementById('stopBtn').addEventListener('click', async () => {
     statusDiv.textContent = data.message;
     statusDiv.className = 'success';
     loadPendingMessages();
-    loadStats();
   } catch (error) {
     statusDiv.textContent = `Error: ${error.message}`;
     statusDiv.className = 'error';
@@ -145,7 +157,30 @@ document.getElementById('bulkUpdateForm').addEventListener('submit', async (e) =
     statusDiv.className = response.ok ? 'success' : 'error';
     if (response.ok) {
       loadPendingMessages();
-      loadStats();
+    }
+  } catch (error) {
+    statusDiv.textContent = `Error: ${error.message}`;
+    statusDiv.className = 'error';
+  }
+});
+
+// Delete campaign
+document.getElementById('deleteCampaignBtn').addEventListener('click', async () => {
+  const campaignId = document.getElementById('bulkCampaign').value;
+  if (!campaignId || !confirm('Are you sure you want to delete this campaign and all its messages?')) return;
+  const statusDiv = document.getElementById('bulkUpdateStatus');
+  statusDiv.textContent = 'Deleting...';
+  statusDiv.className = '';
+
+  try {
+    const response = await fetch(`/api/campaign/${campaignId}`, { method: 'DELETE' });
+    const data = await response.json();
+    statusDiv.textContent = data.message;
+    statusDiv.className = response.ok ? 'success' : 'error';
+    if (response.ok) {
+      loadPendingMessages();
+      loadCampaigns();
+      document.getElementById('bulkCampaign').value = '';
     }
   } catch (error) {
     statusDiv.textContent = `Error: ${error.message}`;
@@ -168,6 +203,7 @@ async function loadPendingMessages() {
             ${m.phoneNumber}: "${m.campaignId?.content || 'No content'}" 
             (Campaign: ${m.campaignId?.name || 'Unnamed'}) 
             ${m.campaignId?.filePath ? '(with file)' : ''}
+            <button class="delete-btn" onclick="deleteMessage('${m._id}')">Delete</button>
           </li>
         `).join('')
       : 'No pending messages for this campaign';
@@ -176,9 +212,36 @@ async function loadPendingMessages() {
   }
 }
 
-// Filter pending messages and dashboard stats on campaign change
-document.getElementById('filterCampaign').addEventListener('change', loadPendingMessages);
-document.getElementById('dashboardCampaign').addEventListener('change', loadStats);
+// Delete individual message
+async function deleteMessage(messageId) {
+  if (!confirm('Are you sure you want to delete this message?')) return;
+  try {
+    const response = await fetch(`/api/message/${messageId}`, { method: 'DELETE' });
+    const data = await response.json();
+    alert(data.message);
+    loadPendingMessages();
+  } catch (error) {
+    alert(`Error: ${error.message}`);
+  }
+}
+
+// Sync campaign filters
+function syncCampaignFilters() {
+  const dashboardCampaign = document.getElementById('dashboardCampaign');
+  const filterCampaign = document.getElementById('filterCampaign');
+  const value = dashboardCampaign.value;
+  filterCampaign.value = value;
+  loadPendingMessages();
+  loadStats(value);
+}
+
+document.getElementById('dashboardCampaign').addEventListener('change', syncCampaignFilters);
+document.getElementById('filterCampaign').addEventListener('change', () => {
+  const filterCampaign = document.getElementById('filterCampaign');
+  const dashboardCampaign = document.getElementById('dashboardCampaign');
+  dashboardCampaign.value = filterCampaign.value;
+  loadStats(filterCampaign.value);
+});
 
 // Initial load
 loadCampaigns();
