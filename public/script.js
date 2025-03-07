@@ -45,6 +45,7 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
       loadCampaigns();
       loadPendingMessages();
       loadStats();
+      if (userRole === 'superadmin') loadTeams();
     }
   } catch (error) {
     statusDiv.textContent = `Error: ${error.message}`;
@@ -53,13 +54,14 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
 });
 
 // Check login on load
-if (token && userRole && userTeam) {
+if (token && userRole) {
   document.getElementById('login').classList.remove('active');
   document.getElementById('main').classList.remove('hidden');
   setupUI();
   loadCampaigns();
   loadPendingMessages();
   loadStats();
+  if (userRole === 'superadmin') loadTeams();
 }
 
 // Setup UI based on role
@@ -70,16 +72,19 @@ function setupUI() {
     tabs.querySelector('[data-tab="upload"]').style.display = 'none';
     tabs.querySelector('[data-tab="update"]').style.display = 'none';
     tabs.querySelector('[data-tab="users"]').style.display = 'none';
+    tabs.querySelector('[data-tab="teams"]').style.display = 'none';
     logoutBtn.style.display = 'none';
     switchTab('send');
   } else if (userRole === 'admin') {
     tabs.querySelector('[data-tab="users"]').style.display = 'block';
+    tabs.querySelector('[data-tab="teams"]').style.display = 'none';
     logoutBtn.style.display = 'none';
     document.getElementById('userRole').innerHTML = '<option value="agent">Agent</option>';
-    document.querySelector('.team-label').style.display = 'none';
-    document.querySelector('.team-select').style.display = 'none';
+    document.getElementById('userTeam').style.display = 'none';
+    document.querySelector('label[for="userTeam"]').style.display = 'none';
   } else if (userRole === 'superadmin') {
     tabs.querySelector('[data-tab="users"]').style.display = 'block';
+    tabs.querySelector('[data-tab="teams"]').style.display = 'block';
     logoutBtn.style.display = 'block';
   }
 }
@@ -100,15 +105,23 @@ async function loadCampaigns() {
     bulkDropdown.innerHTML = '<option value="">Select a Campaign</option>' + options;
     filterDropdown.innerHTML = '<option value="">All Campaigns</option>' + options;
     dashboardDropdown.innerHTML = '<option value="">All Campaigns</option>' + options;
-
-    if (userRole === 'superadmin') {
-      const teamDropdown = document.getElementById('userTeam');
-      const admins = await (await fetch('/api/campaigns', { headers: { Authorization: `Bearer ${token}` } })).json();
-      teamDropdown.innerHTML = '<option value="">None</option>' + admins.map(a => `<option value="${a.createdBy}">${a.name}</option>`).join('');
-    }
   } catch (error) {
     console.error('Failed to load campaigns:', error);
     alert('Error loading campaigns: ' + error.message);
+  }
+}
+
+// Load teams
+async function loadTeams() {
+  try {
+    const response = await fetch('/api/teams', { headers: { Authorization: `Bearer ${token}` } });
+    if (!response.ok) throw new Error('Failed to fetch teams');
+    const teams = await response.json();
+    const teamDropdown = document.getElementById('userTeam');
+    teamDropdown.innerHTML = '<option value="">None</option>' + teams.map(t => `<option value="${t._id}">${t.name}</option>`).join('');
+  } catch (error) {
+    console.error('Failed to load teams:', error);
+    alert('Error loading teams: ' + error.message);
   }
 }
 
@@ -133,7 +146,7 @@ async function loadStats(campaignId = '') {
 const ws = new WebSocket(`ws://localhost:${location.port}`);
 ws.onmessage = (event) => {
   const { type, data } = JSON.parse(event.data);
-  if (type === 'stats' && (!data.teamId || data.teamId === userTeam)) {
+  if (type === 'stats' && (userRole === 'superadmin' || data.teamId === userTeam)) {
     const campaignId = document.getElementById('dashboardCampaign').value;
     if (!campaignId || campaignId === data.campaignId) {
       document.getElementById('totalCampaigns').textContent = data.totalCampaigns;
@@ -296,16 +309,18 @@ async function loadPendingMessages(page = currentPage) {
     if (!response.ok) throw new Error('Failed to fetch pending messages');
     const { messages, total, page: current, pages } = await response.json();
     currentPage = current;
+
     list.innerHTML = messages.length
       ? messages.map(m => `
           <li>
-            ${m.phoneNumber}: "${m.campaignId?.content || 'No content'}" 
+            ${m.customerId.phoneNumber} (${m.customerId.name || 'Unknown'}): "${m.campaignId?.content || 'No content'}" 
             (Campaign: ${m.campaignId?.name || 'Unnamed'}) 
+            ${userRole === 'superadmin' ? `(Team: ${m.campaignId?.team || 'No Team'})` : ''} 
             ${m.campaignId?.filePath ? '(with file)' : ''}
             ${(userRole === 'superadmin' || userRole === 'admin') ? `<button class="delete-btn" onclick="deleteMessage('${m._id}')">Delete</button>` : ''}
           </li>
         `).join('')
-      : 'No pending messages for this campaign';
+      : 'No pending messages for this team/campaign';
     document.getElementById('pageInfo').textContent = `Page ${current} of ${pages}`;
     document.getElementById('prevPage').disabled = current === 1;
     document.getElementById('nextPage').disabled = current === pages;
@@ -360,6 +375,30 @@ document.getElementById('userForm').addEventListener('submit', async (e) => {
     const data = await response.json();
     statusDiv.textContent = data.message || data.error;
     statusDiv.className = response.ok ? 'success' : 'error';
+  } catch (error) {
+    statusDiv.textContent = `Error: ${error.message}`;
+    statusDiv.className = 'error';
+  }
+});
+
+// Add team
+document.getElementById('teamForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const formData = new FormData(e.target);
+  const statusDiv = document.getElementById('teamStatus');
+  statusDiv.textContent = 'Adding team...';
+  statusDiv.className = '';
+
+  try {
+    const response = await fetch('/api/teams', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ name: formData.get('name') }),
+    });
+    const data = await response.json();
+    statusDiv.textContent = data.message || data.error;
+    statusDiv.className = response.ok ? 'success' : 'error';
+    if (response.ok) loadTeams();
   } catch (error) {
     statusDiv.textContent = `Error: ${error.message}`;
     statusDiv.className = 'error';

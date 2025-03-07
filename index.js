@@ -15,6 +15,7 @@ const Customer = require('./models/Customer');
 const Message = require('./models/Message');
 const Campaign = require('./models/Campaign');
 const User = require('./models/User');
+const Team = require('./models/Team');
 
 const app = express();
 const server = http.createServer(app);
@@ -41,7 +42,7 @@ const authenticate = async (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = await User.findById(decoded.id);
+    req.user = await User.findById(decoded.id).populate('team');
     if (!req.user) return res.status(401).json({ error: 'Invalid token' });
     next();
   } catch (error) {
@@ -151,14 +152,38 @@ async function sendPendingMessages(campaignId, teamId, batchSize = 10, minDelay 
 app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
   try {
-    const user = await User.findOne({ username });
+    const user = await User.findOne({ username }).populate('team');
     if (!user || !await bcrypt.compare(password, user.password)) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
     const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: '1h' });
-    res.json({ token, role: user.role, team: user.team });
+    res.json({ token, role: user.role, team: user.team?._id });
   } catch (error) {
     res.status(500).json({ error: 'Login failed: ' + error.message });
+  }
+});
+
+// API: Create Team (Super Admin only)
+app.post('/api/teams', authenticate, authorize(['superadmin']), async (req, res) => {
+  const { name } = req.body;
+  if (!name) return res.status(400).json({ error: 'Team name is required' });
+
+  try {
+    const team = new Team({ name, createdBy: req.user._id });
+    await team.save();
+    res.status(201).json({ message: `Team ${name} created`, teamId: team._id });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to create team: ' + error.message });
+  }
+});
+
+// API: Get Teams (Super Admin only)
+app.get('/api/teams', authenticate, authorize(['superadmin']), async (req, res) => {
+  try {
+    const teams = await Team.find();
+    res.json(teams);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch teams: ' + error.message });
   }
 });
 
@@ -177,6 +202,9 @@ app.post('/api/users', authenticate, async (req, res) => {
   if (role === 'superadmin' && req.user.role !== 'superadmin') {
     return res.status(403).json({ error: 'Only Super Admins can create Super Admins' });
   }
+  if ((role === 'admin' || role === 'agent') && !team && req.user.role !== 'admin') {
+    return res.status(400).json({ error: 'Team is required for Admins and Agents' });
+  }
 
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -184,7 +212,7 @@ app.post('/api/users', authenticate, async (req, res) => {
       username,
       password: hashedPassword,
       role,
-      team: role === 'agent' ? req.user._id : (role === 'admin' ? req.user._id : team || req.user._id), // Admin owns team, Agent belongs to Admin
+      team: req.user.role === 'admin' ? req.user.team : team,
     });
     await user.save();
     res.status(201).json({ message: `User ${username} created` });
@@ -202,14 +230,17 @@ app.post('/api/upload', authenticate, authorize(['superadmin', 'admin']), upload
   if (!csvFile || !messageContent || !campaignName) {
     return res.status(400).json({ error: 'CSV file, message content, and campaign name are required' });
   }
+  if (req.user.role === 'admin' && !req.user.team) {
+    return res.status(403).json({ error: 'Admin must belong to a team' });
+  }
 
   const campaign = new Campaign({
     name: campaignName,
     content: messageContent,
     filePath: mediaFile ? path.join(__dirname, 'uploads', mediaFile.filename) : null,
     fileType: mediaFile ? (mediaFile.mimetype.startsWith('image') ? 'image' : 'document') : null,
-    createdBy: req.user._id,
-    team: req.user.team,
+    createdBy: req.user._id, // Ensure this is the Admin’s ObjectId
+    team: req.user.team?._id,
   });
   await campaign.save();
 
@@ -221,23 +252,23 @@ app.post('/api/upload', authenticate, authorize(['superadmin', 'admin']), upload
     })
     .on('end', async () => {
       for (const { phoneNumber, name } of phoneNumbers) {
-        let customer = await Customer.findOne({ phoneNumber, team: req.user.team });
+        let customer = await Customer.findOne({ phoneNumber, team: req.user.team?._id });
         if (!customer) {
-          customer = new Customer({ phoneNumber, name, team: req.user.team });
+          customer = new Customer({ phoneNumber, name, team: req.user.team?._id });
           await customer.save();
         }
         const message = new Message({
           customerId: customer._id,
           campaignId: campaign._id,
           phoneNumber,
-          team: req.user.team,
+          team: req.user.team?._id,
         });
         await message.save();
       }
       fs.unlinkSync(csvFile.path);
       if (mediaFile) fs.renameSync(mediaFile.path, path.join(__dirname, 'uploads', mediaFile.filename));
       res.status(201).json({ message: `${phoneNumbers.length} numbers added to campaign "${campaignName}"` });
-      broadcastStats(null, req.user.team);
+      broadcastStats(null, req.user.team?._id);
     })
     .on('error', (error) => res.status(500).json({ error: 'CSV parsing failed: ' + error.message }));
 });
@@ -245,6 +276,9 @@ app.post('/api/upload', authenticate, authorize(['superadmin', 'admin']), upload
 // API: Start sending
 app.post('/api/start', authenticate, authorize(['superadmin', 'admin', 'agent']), async (req, res) => {
   const { campaignId, batchSize, minDelay, maxDelay, breakAfter, breakDuration } = req.body;
+  if (req.user.role !== 'superadmin' && !req.user.team) {
+    return res.status(403).json({ error: 'User must belong to a team' });
+  }
   if (req.user.role === 'agent') {
     const campaign = await Campaign.findOne({ _id: campaignId, team: req.user.team });
     if (!campaign) {
@@ -253,7 +287,7 @@ app.post('/api/start', authenticate, authorize(['superadmin', 'admin', 'agent'])
   }
   if (isSending) return res.json({ status: 'running', message: 'Already sending' });
   isSending = true;
-  const result = await sendPendingMessages(campaignId, req.user.team, parseInt(batchSize) || 10, parseInt(minDelay) || 1000, parseInt(maxDelay) || 5000, parseInt(breakAfter) || 50, parseInt(breakDuration) || 600000);
+  const result = await sendPendingMessages(campaignId, req.user.team?._id, parseInt(batchSize) || 10, parseInt(minDelay) || 1000, parseInt(maxDelay) || 5000, parseInt(breakAfter) || 50, parseInt(breakDuration) || 600000);
   isSending = false;
   res.json(result);
 });
@@ -262,7 +296,7 @@ app.post('/api/start', authenticate, authorize(['superadmin', 'admin', 'agent'])
 app.post('/api/stop', authenticate, authorize(['superadmin', 'admin', 'agent']), (req, res) => {
   isSending = false;
   res.json({ status: 'stopped', message: 'Sending stopped' });
-  broadcastStats(null, req.user.team);
+  broadcastStats(null, req.user.team?._id);
 });
 
 // API: Bulk update
@@ -274,9 +308,16 @@ app.put('/api/bulk-update', authenticate, authorize(['superadmin', 'admin']), up
   if (!content && !mediaFile) return res.status(400).json({ error: 'Content or file is required to update' });
 
   try {
-    const campaign = await Campaign.findOne({ _id: campaignId, team: req.user.team });
+    const campaign = await Campaign.findOne({ _id: campaignId, team: req.user.team?._id });
     if (!campaign) return res.status(404).json({ error: 'Campaign not found or not in your team' });
-    if (campaign.createdBy.toString() !== req.user._id && req.user.role !== 'superadmin') {
+
+    // Debug logging
+    console.log('Bulk Update - User ID:', req.user._id.toString());
+    console.log('Bulk Update - Campaign CreatedBy:', campaign.createdBy.toString());
+    console.log('Bulk Update - Role:', req.user.role);
+
+    // Check ownership
+    if (campaign.createdBy.toString() !== req.user._id.toString() && req.user.role !== 'superadmin') {
       return res.status(403).json({ error: 'You can only update your own campaigns' });
     }
 
@@ -288,7 +329,7 @@ app.put('/api/bulk-update', authenticate, authorize(['superadmin', 'admin']), up
     }
     await campaign.save();
     res.json({ message: `Campaign "${campaign.name}" updated` });
-    broadcastStats(campaignId, req.user.team);
+    broadcastStats(campaignId, req.user.team?._id);
   } catch (error) {
     if (mediaFile && fs.existsSync(mediaFile.path)) fs.unlinkSync(mediaFile.path);
     res.status(500).json({ error: 'Failed to update campaign: ' + error.message });
@@ -300,11 +341,21 @@ app.get('/api/pending', authenticate, async (req, res) => {
   const { campaignId, page = 1 } = req.query;
   const limit = 20;
   const skip = (page - 1) * limit;
-  const query = { status: 'pending', team: req.user.team };
+  const query = { status: 'pending' };
+  
+  // Super Admin sees all, others see only their team
+  if (req.user.role !== 'superadmin') {
+    if (!req.user.team) return res.status(403).json({ error: 'User must belong to a team' });
+    query.team = req.user.team._id;
+  }
   if (campaignId) query.campaignId = campaignId;
 
   try {
-    const messages = await Message.find(query).populate('customerId campaignId').skip(skip).limit(limit);
+    const messages = await Message.find(query)
+      .populate('customerId', 'phoneNumber name')
+      .populate('campaignId', 'name content team')
+      .skip(skip)
+      .limit(limit);
     const total = await Message.countDocuments(query);
     res.json({ messages, total, page: parseInt(page), pages: Math.ceil(total / limit) });
   } catch (error) {
@@ -314,18 +365,19 @@ app.get('/api/pending', authenticate, async (req, res) => {
 
 // API: Get all campaigns
 app.get('/api/campaigns', authenticate, async (req, res) => {
-  const campaigns = await Campaign.find({ team: req.user.team });
+  const query = req.user.role === 'superadmin' ? {} : { team: req.user.team?._id };
+  const campaigns = await Campaign.find(query);
   res.json(campaigns);
 });
 
 // API: Get stats
 app.get('/api/stats', authenticate, async (req, res) => {
   const { campaignId } = req.query;
-  const query = { team: req.user.team };
+  const query = req.user.role === 'superadmin' ? {} : { team: req.user.team?._id };
   if (campaignId) query.campaignId = campaignId;
   try {
     const stats = {
-      totalCampaigns: await Campaign.countDocuments({ team: req.user.team }),
+      totalCampaigns: await Campaign.countDocuments(req.user.role === 'superadmin' ? {} : { team: req.user.team?._id }),
       pendingMessages: await Message.countDocuments({ ...query, status: 'pending' }),
       sentMessages: await Message.countDocuments({ ...query, status: 'sent' }),
       failedMessages: await Message.countDocuments({ ...query, status: 'failed' }),
@@ -340,16 +392,24 @@ app.get('/api/stats', authenticate, async (req, res) => {
 app.delete('/api/campaign/:id', authenticate, authorize(['superadmin', 'admin']), async (req, res) => {
   const { id } = req.params;
   try {
-    const campaign = await Campaign.findOne({ _id: id, team: req.user.team });
+    const campaign = await Campaign.findOne({ _id: id, team: req.user.team?._id });
     if (!campaign) return res.status(404).json({ error: 'Campaign not found or not in your team' });
-    if (campaign.createdBy.toString() !== req.user._id && req.user.role !== 'superadmin') {
+
+    // Debug logging
+    console.log('Delete Campaign - User ID:', req.user._id.toString());
+    console.log('Delete Campaign - Campaign CreatedBy:', campaign.createdBy.toString());
+    console.log('Delete Campaign - Role:', req.user.role);
+
+    // Check ownership
+    if (campaign.createdBy.toString() !== req.user._id.toString() && req.user.role !== 'superadmin') {
       return res.status(403).json({ error: 'You can only delete your own campaigns' });
     }
-    await Message.deleteMany({ campaignId: id, team: req.user.team });
+
+    await Message.deleteMany({ campaignId: id, team: req.user.team?._id });
     await Campaign.deleteOne({ _id: id });
     if (campaign.filePath) fs.unlinkSync(campaign.filePath);
     res.json({ message: `Campaign "${campaign.name}" and its messages deleted` });
-    broadcastStats(null, req.user.team);
+    broadcastStats(null, req.user.team?._id);
   } catch (error) {
     res.status(500).json({ error: 'Failed to delete campaign: ' + error.message });
   }
@@ -359,14 +419,14 @@ app.delete('/api/campaign/:id', authenticate, authorize(['superadmin', 'admin'])
 app.delete('/api/message/:id', authenticate, authorize(['superadmin', 'admin']), async (req, res) => {
   const { id } = req.params;
   try {
-    const message = await Message.findOne({ _id: id, team: req.user.team }).populate('campaignId');
+    const message = await Message.findOne({ _id: id, team: req.user.team?._id }).populate('campaignId');
     if (!message) return res.status(404).json({ error: 'Message not found or not in your team' });
     if (message.campaignId.createdBy.toString() !== req.user._id && req.user.role !== 'superadmin') {
       return res.status(403).json({ error: 'You can only delete messages from your own campaigns' });
     }
     await Message.deleteOne({ _id: id });
     res.json({ message: `Message to ${message.phoneNumber} deleted` });
-    broadcastStats(message.campaignId._id, req.user.team);
+    broadcastStats(message.campaignId._id, req.user.team?._id);
   } catch (error) {
     res.status(500).json({ error: 'Failed to delete message: ' + error.message });
   }

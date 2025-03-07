@@ -6,7 +6,7 @@ const messageSchema = new mongoose.Schema({
   phoneNumber: { type: String, required: true },
   status: { type: String, enum: ['pending', 'sent', 'failed'], default: 'pending' },
   sentAt: Date,
-  team: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true }, // Team owner (Admin)
+  team: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', required: true },
 });
 
 module.exports = mongoose.model('Message', messageSchema);

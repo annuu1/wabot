@@ -6,7 +6,7 @@ const campaignSchema = new mongoose.Schema({
   filePath: String,
   fileType: String,
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  team: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true }, // Team owner (Admin)
+  team: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', required: true },
 });
 
 module.exports = mongoose.model('Campaign', campaignSchema);

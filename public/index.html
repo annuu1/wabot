@@ -47,6 +47,7 @@
       <button class="tab-btn" data-tab="update">Update Messages</button>
       <button class="tab-btn" data-tab="pending">View Pending</button>
       <button class="tab-btn" data-tab="users">Manage Users</button>
+      <button class="tab-btn" data-tab="teams">Manage Teams</button>
     </div>
 
     <section id="upload" class="tab-content active">
@@ -97,7 +98,7 @@
         <select id="bulkCampaign" name="campaignId" required>
           <option value="">Select a Campaign</option>
         </select>
-        <label for="bulkContent">New Message Content (optional tactic):</label>
+        <label for="bulkContent">New Message Content (optional):</label>
         <textarea id="bulkContent" name="content" placeholder="Enter new message content"></textarea>
         <label for="bulkMediaFile">New Media File (optional):</label>
         <input type="file" id="bulkMediaFile" name="mediaFile" accept="image/*,.pdf">
@@ -134,13 +135,23 @@
           <option value="admin">Admin</option>
           <option value="agent">Agent</option>
         </select>
-        <label for="userTeam" class="team-label">Team (Admin for Agent):</label>
-        <select id="userTeam" name="team" class="team-select">
+        <label for="userTeam">Team:</label>
+        <select id="userTeam" name="team">
           <option value="">None</option>
         </select>
         <button type="submit">Add User</button>
       </form>
       <div id="userStatus"></div>
+    </section>
+
+    <section id="teams" class="tab-content">
+      <h2>Manage Teams</h2>
+      <form id="teamForm">
+        <label for="teamName">Team Name:</label>
+        <input type="text" id="teamName" name="name" required>
+        <button type="submit">Add Team</button>
+      </form>
+      <div id="teamStatus"></div>
     </section>
   </div>
 
