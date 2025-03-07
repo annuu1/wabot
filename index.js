@@ -109,7 +109,7 @@ async function sendPendingMessages(campaignId, teamId, batchSize = 10, minDelay 
   if (!isSending) return { status: 'stopped', message: 'Sending stopped' };
 
   const query = { status: 'pending', team: teamId };
-  if (campaignId) query.campaignId = campaignId;
+  if (campaignId && campaignId !== '') query.campaignId = campaignId; // Only add campaignId if valid
   const pendingMessages = await Message.find(query).populate('customerId campaignId').limit(batchSize);
   let sentCount = 0;
 
@@ -130,7 +130,7 @@ async function sendPendingMessages(campaignId, teamId, batchSize = 10, minDelay 
       await msg.save();
       console.log(`Sent to ${msg.phoneNumber}: ${msg.campaignId.content} (Campaign: ${msg.campaignId.name})`);
       sentCount++;
-      broadcastStats(campaignId, teamId);
+      broadcastStats(campaignId || null, teamId);
       if (sentCount % breakAfter === 0 && sentCount < pendingMessages.length) {
         console.log(`Taking a break for ${breakDuration / 60000} minutes...`);
         await new Promise(resolve => setTimeout(resolve, breakDuration));
@@ -142,7 +142,7 @@ async function sendPendingMessages(campaignId, teamId, batchSize = 10, minDelay 
       console.error(`Failed to send to ${msg.phoneNumber}:`, error);
       msg.status = 'failed';
       await msg.save();
-      broadcastStats(campaignId, teamId);
+      broadcastStats(campaignId || null, teamId);
     }
   }
   return { status: 'success', sent: sentCount };
@@ -276,20 +276,45 @@ app.post('/api/upload', authenticate, authorize(['superadmin', 'admin']), upload
 // API: Start sending
 app.post('/api/start', authenticate, authorize(['superadmin', 'admin', 'agent']), async (req, res) => {
   const { campaignId, batchSize, minDelay, maxDelay, breakAfter, breakDuration } = req.body;
+
+  // Validate campaignId if provided
+  if (campaignId && campaignId !== '') {
+    if (!mongoose.Types.ObjectId.isValid(campaignId)) {
+      return res.status(400).json({ error: 'Invalid campaign ID' });
+    }
+  }
+
   if (req.user.role !== 'superadmin' && !req.user.team) {
     return res.status(403).json({ error: 'User must belong to a team' });
   }
-  if (req.user.role === 'agent') {
+
+  // For Agents, ensure campaign belongs to their team
+  if (req.user.role === 'agent' && campaignId) {
     const campaign = await Campaign.findOne({ _id: campaignId, team: req.user.team });
     if (!campaign) {
       return res.status(403).json({ error: 'You can only send messages for your team’s campaigns' });
     }
   }
+
   if (isSending) return res.json({ status: 'running', message: 'Already sending' });
   isSending = true;
-  const result = await sendPendingMessages(campaignId, req.user.team?._id, parseInt(batchSize) || 10, parseInt(minDelay) || 1000, parseInt(maxDelay) || 5000, parseInt(breakAfter) || 50, parseInt(breakDuration) || 600000);
-  isSending = false;
-  res.json(result);
+
+  try {
+    const result = await sendPendingMessages(
+      campaignId || null, // Pass null if empty or undefined
+      req.user.team?._id,
+      parseInt(batchSize) || 10,
+      parseInt(minDelay) || 1000,
+      parseInt(maxDelay) || 5000,
+      parseInt(breakAfter) || 50,
+      parseInt(breakDuration) || 600000
+    );
+    isSending = false;
+    res.json(result);
+  } catch (error) {
+    isSending = false;
+    res.status(500).json({ error: 'Failed to send messages: ' + error.message });
+  }
 });
 
 // API: Stop sending

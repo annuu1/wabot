@@ -193,7 +193,7 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
 document.getElementById('startBtn').addEventListener('click', async () => {
   const formData = new FormData(document.getElementById('sendForm'));
   const settings = {
-    campaignId: formData.get('campaignId'),
+    campaignId: formData.get('campaignId') || undefined, // Send undefined instead of ""
     batchSize: formData.get('batchSize'),
     minDelay: formData.get('minDelay'),
     maxDelay: formData.get('maxDelay'),
