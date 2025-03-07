@@ -29,7 +29,7 @@ mongoose.connect('mongodb+srv://krao53127:Pinkcity%407557@cluster0.sgxwf.mongodb
   .then(() => console.log('MongoDB connected'))
   .catch(err => console.error('MongoDB connection error:', err));
 
-// WebSocket broadcast function
+// WebSocket broadcast function (optimized for specific campaign)
 function broadcastStats(campaignId = null) {
   wss.clients.forEach(async (client) => {
     if (client.readyState === WebSocket.OPEN) {
@@ -38,6 +38,7 @@ function broadcastStats(campaignId = null) {
         pendingMessages: await Message.countDocuments(campaignId ? { status: 'pending', campaignId } : { status: 'pending' }),
         sentMessages: await Message.countDocuments(campaignId ? { status: 'sent', campaignId } : { status: 'sent' }),
         failedMessages: await Message.countDocuments(campaignId ? { status: 'failed', campaignId } : { status: 'failed' }),
+        campaignId,
       };
       client.send(JSON.stringify({ type: 'stats', data: stats }));
     }
@@ -55,7 +56,10 @@ async function startBot() {
 
   sock.ev.on('connection.update', async (update) => {
     const { connection, qr, lastDisconnect } = update;
-    if (qr) console.log('Scan this QR:', qrcode.generate(qr, { small: true }));
+    if (qr) {
+      console.log('Scan this QR:', qrcode.generate(qr, { small: true }));
+      wss.clients.forEach(client => client.send(JSON.stringify({ type: 'qr', data: qr })));
+    }
     if (connection === 'open') console.log('Bot connected to WhatsApp!');
     if (connection === 'close') {
       const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
@@ -183,16 +187,30 @@ app.post('/api/stop', (req, res) => {
   broadcastStats();
 });
 
-// API: Bulk update message content by campaign
-app.put('/api/bulk-update', async (req, res) => {
+// API: Bulk update message content and file by campaign
+app.put('/api/bulk-update', upload.single('mediaFile'), async (req, res) => {
   const { campaignId, content } = req.body;
-  if (!content || !campaignId) return res.status(400).json({ error: 'Campaign ID and content are required' });
+  const mediaFile = req.file;
+
+  if (!campaignId) return res.status(400).json({ error: 'Campaign ID is required' });
+  if (!content && !mediaFile) return res.status(400).json({ error: 'Content or file is required to update' });
+
   try {
-    await Campaign.updateOne({ _id: campaignId }, { content });
-    res.json({ message: `Campaign updated` });
+    const campaign = await Campaign.findById(campaignId);
+    if (!campaign) return res.status(404).json({ error: 'Campaign not found' });
+
+    if (content) campaign.content = content;
+    if (mediaFile) {
+      if (campaign.filePath) fs.unlinkSync(campaign.filePath); // Remove old file
+      campaign.filePath = path.join(__dirname, 'uploads', mediaFile.filename);
+      campaign.fileType = mediaFile.mimetype.startsWith('image') ? 'image' : 'document';
+    }
+    await campaign.save();
+    res.json({ message: `Campaign "${campaign.name}" updated` });
     broadcastStats(campaignId);
   } catch (error) {
-    res.status(500).json({ error: 'Failed to update: ' + error.message });
+    if (mediaFile && fs.existsSync(mediaFile.path)) fs.unlinkSync(mediaFile.path); // Clean up on error
+    res.status(500).json({ error: 'Failed to update campaign: ' + error.message });
   }
 });
 
@@ -254,6 +272,19 @@ app.delete('/api/message/:id', async (req, res) => {
     broadcastStats(message.campaignId);
   } catch (error) {
     res.status(500).json({ error: 'Failed to delete message: ' + error.message });
+  }
+});
+
+// API: Logout WhatsApp
+app.post('/api/logout', async (req, res) => {
+  try {
+    if (!sock) return res.status(400).json({ error: 'Not connected to WhatsApp' });
+    await sock.logout();
+    fs.rmSync('auth_info', { recursive: true, force: true }); // Clear credentials
+    sock = null;
+    res.json({ message: 'Logged out successfully. Please scan QR to reconnect.' });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to logout: ' + error.message });
   }
 });
 

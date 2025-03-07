@@ -10,6 +10,7 @@
   <header>
     <h1>WhatsApp Bot Manager</h1>
     <p>Manage your campaigns and messages with ease</p>
+    <button id="logoutBtn" class="delete-btn">Logout WhatsApp</button>
   </header>
 
   <section id="dashboard">
@@ -76,13 +77,15 @@
 
   <section id="update" class="tab-content">
     <h2>Update Messages</h2>
-    <form id="bulkUpdateForm">
+    <form id="bulkUpdateForm" enctype="multipart/form-data">
       <label for="bulkCampaign">Select Campaign:</label>
       <select id="bulkCampaign" name="campaignId" required>
         <option value="">Select a Campaign</option>
       </select>
-      <label for="bulkContent">New Message Content:</label>
-      <textarea id="bulkContent" name="content" placeholder="Enter new message content" required></textarea>
+      <label for="bulkContent">New Message Content (optional):</label>
+      <textarea id="bulkContent" name="content" placeholder="Enter new message content"></textarea>
+      <label for="bulkMediaFile">New Media File (optional):</label>
+      <input type="file" id="bulkMediaFile" name="mediaFile" accept="image/*,.pdf">
       <button type="submit">Update Campaign</button>
       <button type="button" id="deleteCampaignBtn" class="delete-btn">Delete Campaign</button>
     </form>

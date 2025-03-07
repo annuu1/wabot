@@ -12,6 +12,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 async function loadCampaigns() {
   try {
     const response = await fetch('/api/campaigns');
+    if (!response.ok) throw new Error('Failed to fetch campaigns');
     const campaigns = await response.json();
     const sendDropdown = document.getElementById('sendCampaign');
     const bulkDropdown = document.getElementById('bulkCampaign');
@@ -25,6 +26,7 @@ async function loadCampaigns() {
     dashboardDropdown.innerHTML = '<option value="">All Campaigns</option>' + options;
   } catch (error) {
     console.error('Failed to load campaigns:', error);
+    alert('Error loading campaigns: ' + error.message);
   }
 }
 
@@ -33,6 +35,7 @@ async function loadStats(campaignId = '') {
   try {
     const url = campaignId ? `/api/stats?campaignId=${campaignId}` : '/api/stats';
     const response = await fetch(url);
+    if (!response.ok) throw new Error('Failed to fetch stats');
     const stats = await response.json();
     document.getElementById('totalCampaigns').textContent = stats.totalCampaigns;
     document.getElementById('pendingMessages').textContent = stats.pendingMessages;
@@ -40,10 +43,11 @@ async function loadStats(campaignId = '') {
     document.getElementById('failedMessages').textContent = stats.failedMessages;
   } catch (error) {
     console.error('Failed to load stats:', error);
+    alert('Error loading stats: ' + error.message);
   }
 }
 
-// WebSocket connection
+// WebSocket connection with error handling
 const ws = new WebSocket(`ws://localhost:${location.port}`);
 ws.onmessage = (event) => {
   const { type, data } = JSON.parse(event.data);
@@ -55,8 +59,12 @@ ws.onmessage = (event) => {
       document.getElementById('sentMessages').textContent = data.sentMessages;
       document.getElementById('failedMessages').textContent = data.failedMessages;
     }
+  } else if (type === 'qr') {
+    alert('Please scan this QR code to connect WhatsApp:\n' + data);
   }
 };
+ws.onerror = () => console.error('WebSocket error occurred');
+ws.onclose = () => console.log('WebSocket connection closed');
 
 // Upload form
 document.getElementById('uploadForm').addEventListener('submit', async (e) => {
@@ -72,7 +80,7 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
       body: formData,
     });
     const data = await response.json();
-    statusDiv.textContent = data.message;
+    statusDiv.textContent = data.message || data.error;
     statusDiv.className = response.ok ? 'success' : 'error';
     if (response.ok) {
       loadPendingMessages();
@@ -107,7 +115,7 @@ document.getElementById('startBtn').addEventListener('click', async () => {
       body: JSON.stringify(settings),
     });
     const data = await response.json();
-    statusDiv.textContent = `Sent ${data.sent || 0} messages (${data.status})`;
+    statusDiv.textContent = `Sent ${data.sent || 0} messages (${data.status})` || data.error;
     statusDiv.className = response.ok ? 'success' : 'error';
     if (response.ok) {
       loadPendingMessages();
@@ -127,21 +135,21 @@ document.getElementById('stopBtn').addEventListener('click', async () => {
   try {
     const response = await fetch('/api/stop', { method: 'POST' });
     const data = await response.json();
-    statusDiv.textContent = data.message;
-    statusDiv.className = 'success';
-    loadPendingMessages();
+    statusDiv.textContent = data.message || data.error;
+    statusDiv.className = response.ok ? 'success' : 'error';
+    if (response.ok) {
+      loadPendingMessages();
+    }
   } catch (error) {
     statusDiv.textContent = `Error: ${error.message}`;
     statusDiv.className = 'error';
   }
 });
 
-// Bulk update form
+// Bulk update form with file support
 document.getElementById('bulkUpdateForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const formData = new FormData(e.target);
-  const campaignId = formData.get('campaignId');
-  const content = formData.get('content');
   const statusDiv = document.getElementById('bulkUpdateStatus');
   statusDiv.textContent = 'Updating...';
   statusDiv.className = '';
@@ -149,11 +157,10 @@ document.getElementById('bulkUpdateForm').addEventListener('submit', async (e) =
   try {
     const response = await fetch('/api/bulk-update', {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ campaignId, content }),
+      body: formData,
     });
     const data = await response.json();
-    statusDiv.textContent = data.message;
+    statusDiv.textContent = data.message || data.error;
     statusDiv.className = response.ok ? 'success' : 'error';
     if (response.ok) {
       loadPendingMessages();
@@ -175,7 +182,7 @@ document.getElementById('deleteCampaignBtn').addEventListener('click', async () 
   try {
     const response = await fetch(`/api/campaign/${campaignId}`, { method: 'DELETE' });
     const data = await response.json();
-    statusDiv.textContent = data.message;
+    statusDiv.textContent = data.message || data.error;
     statusDiv.className = response.ok ? 'success' : 'error';
     if (response.ok) {
       loadPendingMessages();
@@ -196,6 +203,7 @@ async function loadPendingMessages() {
   try {
     const url = campaignId ? `/api/pending?campaignId=${campaignId}` : '/api/pending';
     const response = await fetch(url);
+    if (!response.ok) throw new Error('Failed to fetch pending messages');
     const messages = await response.json();
     list.innerHTML = messages.length
       ? messages.map(m => `
@@ -218,12 +226,24 @@ async function deleteMessage(messageId) {
   try {
     const response = await fetch(`/api/message/${messageId}`, { method: 'DELETE' });
     const data = await response.json();
-    alert(data.message);
-    loadPendingMessages();
+    alert(data.message || data.error);
+    if (response.ok) loadPendingMessages();
   } catch (error) {
     alert(`Error: ${error.message}`);
   }
 }
+
+// Logout WhatsApp
+document.getElementById('logoutBtn').addEventListener('click', async () => {
+  if (!confirm('Are you sure you want to logout from WhatsApp?')) return;
+  try {
+    const response = await fetch('/api/logout', { method: 'POST' });
+    const data = await response.json();
+    alert(data.message || data.error);
+  } catch (error) {
+    alert(`Error: ${error.message}`);
+  }
+});
 
 // Sync campaign filters
 function syncCampaignFilters() {
