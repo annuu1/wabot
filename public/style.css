@@ -14,22 +14,22 @@ header {
 header h1 {
   color: #25D366;
   font-size: 1.5em;
-  margin-bottom: 5px; /* Reduced to tighten spacing */
+  margin-bottom: 5px;
 }
 
 header p {
   font-size: 0.9em;
   color: #666;
-  margin-bottom: 10px; /* Space before the button */
+  margin-bottom: 10px;
 }
 
 header button {
-  display: block; /* Make it a block element for centering */
-  margin: 0 auto; /* Center horizontally */
+  display: block;
+  margin: 5px auto;
   padding: 8px 16px;
   font-size: 0.9em;
-  width: auto; /* Override full-width for this button */
-  max-width: 150px; /* Limit width for better appearance */
+  width: auto;
+  max-width: 150px;
 }
 
 .tabs {
@@ -65,6 +65,10 @@ header button {
 
 .tab-content.active {
   display: block;
+}
+
+.hidden {
+  display: none;
 }
 
 h2 {
@@ -109,6 +113,11 @@ button:hover {
   background-color: #1ebe57;
 }
 
+button:disabled {
+  background-color: #ccc;
+  cursor: not-allowed;
+}
+
 .delete-btn {
   background-color: #dc3545;
 }
@@ -128,14 +137,14 @@ button:hover {
   width: auto;
 }
 
-#uploadStatus, #sendStatus, #bulkUpdateStatus {
+#loginStatus, #uploadStatus, #sendStatus, #bulkUpdateStatus, #userStatus {
   margin-top: 10px;
   padding: 5px;
   border-radius: 4px;
   font-size: 0.9em;
 }
 
-#uploadStatus:empty, #sendStatus:empty, #bulkUpdateStatus:empty {
+#loginStatus:empty, #uploadStatus:empty, #sendStatus:empty, #bulkUpdateStatus:empty, #userStatus:empty {
   display: none;
 }
 
@@ -194,6 +203,23 @@ button:hover {
   margin-bottom: 5px;
 }
 
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.pagination button {
+  padding: 8px 16px;
+  width: auto;
+}
+
+.pagination span {
+  font-size: 0.9em;
+}
+
 /* Responsive Adjustments */
 @media (max-width: 600px) {
   body {
@@ -211,7 +237,7 @@ button:hover {
   header button {
     padding: 6px 12px;
     font-size: 0.8em;
-    max-width: 120px; /* Smaller max-width on mobile */
+    max-width: 120px;
   }
 
   .tabs {
@@ -270,5 +296,9 @@ button:hover {
 
   .stat span {
     font-size: 1em;
+  }
+
+  .pagination button {
+    padding: 6px 12px;
   }
 }

@@ -7,99 +7,142 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header>
-    <h1>WhatsApp Bot Manager</h1>
-    <p>Manage your campaigns and messages with ease</p>
-    <button id="logoutBtn" class="delete-btn">Logout WhatsApp</button>
-  </header>
-
-  <section id="dashboard">
-    <h2>Dashboard</h2>
-    <label for="dashboardCampaign">Filter by Campaign:</label>
-    <select id="dashboardCampaign">
-      <option value="">All Campaigns</option>
-    </select>
-    <div class="stats">
-      <div class="stat"><span id="totalCampaigns">0</span> Campaigns</div>
-      <div class="stat"><span id="pendingMessages">0</span> Pending</div>
-      <div class="stat"><span id="sentMessages">0</span> Sent</div>
-      <div class="stat"><span id="failedMessages">0</span> Failed</div>
-    </div>
-  </section>
-
-  <div class="tabs">
-    <button class="tab-btn active" data-tab="upload">Upload Leads</button>
-    <button class="tab-btn" data-tab="send">Send Messages</button>
-    <button class="tab-btn" data-tab="update">Update Messages</button>
-    <button class="tab-btn" data-tab="pending">View Pending</button>
+  <div id="login" class="tab-content active">
+    <h2>Login</h2>
+    <form id="loginForm">
+      <label for="username">Username:</label>
+      <input type="text" id="username" name="username" required>
+      <label for="password">Password:</label>
+      <input type="password" id="password" name="password" required>
+      <button type="submit">Login</button>
+    </form>
+    <div id="loginStatus"></div>
   </div>
 
-  <section id="upload" class="tab-content active">
-    <h2>Upload Leads</h2>
-    <form id="uploadForm" enctype="multipart/form-data">
-      <label for="campaignName">Campaign Name:</label>
-      <input type="text" id="campaignName" name="campaignName" placeholder="e.g., Promo March 2025" required>
-      <label for="csvFile">CSV File (phoneNumber,name):</label>
-      <input type="file" id="csvFile" name="csvFile" accept=".csv" required>
-      <label for="messageContent">Message Content:</label>
-      <textarea id="messageContent" name="messageContent" placeholder="Enter your message here" required></textarea>
-      <label for="mediaFile">Media File (optional):</label>
-      <input type="file" id="mediaFile" name="mediaFile" accept="image/*,.pdf">
-      <button type="submit">Upload</button>
-    </form>
-    <div id="uploadStatus"></div>
-  </section>
+  <div id="main" class="hidden">
+    <header>
+      <h1>WhatsApp Bot Manager</h1>
+      <p>Manage your campaigns and messages with ease</p>
+      <button id="logoutBtn" class="delete-btn">Logout WhatsApp</button>
+      <button id="logoutUserBtn" class="delete-btn">Logout</button>
+    </header>
 
-  <section id="send" class="tab-content">
-    <h2>Send Messages</h2>
-    <form id="sendForm">
-      <label for="sendCampaign">Select Campaign:</label>
-      <select id="sendCampaign" name="campaignId">
+    <section id="dashboard">
+      <h2>Dashboard</h2>
+      <label for="dashboardCampaign">Filter by Campaign:</label>
+      <select id="dashboardCampaign">
         <option value="">All Campaigns</option>
       </select>
-      <label for="batchSize">Batch Size:</label>
-      <input type="number" id="batchSize" name="batchSize" value="10" min="1" title="Number of messages per batch" required>
-      <label for="minDelay">Min Delay (ms):</label>
-      <input type="number" id="minDelay" name="minDelay" value="1000" min="500" title="Minimum delay between messages" required>
-      <label for="maxDelay">Max Delay (ms):</label>
-      <input type="number" id="maxDelay" name="maxDelay" value="5000" min="500" title="Maximum delay between messages" required>
-      <label for="breakAfter">Break After (messages):</label>
-      <input type="number" id="breakAfter" name="breakAfter" value="50" min="1" title="Pause after this many messages" required>
-      <label for="breakDuration">Break Duration (minutes):</label>
-      <input type="number" id="breakDuration" name="breakDuration" value="10" min="1" title="Length of break in minutes" required>
-      <div class="button-group">
-        <button type="button" id="startBtn">Start Sending</button>
-        <button type="button" id="stopBtn">Stop Sending</button>
+      <div class="stats">
+        <div class="stat"><span id="totalCampaigns">0</span> Campaigns</div>
+        <div class="stat"><span id="pendingMessages">0</span> Pending</div>
+        <div class="stat"><span id="sentMessages">0</span> Sent</div>
+        <div class="stat"><span id="failedMessages">0</span> Failed</div>
       </div>
-    </form>
-    <div id="sendStatus"></div>
-  </section>
+    </section>
 
-  <section id="update" class="tab-content">
-    <h2>Update Messages</h2>
-    <form id="bulkUpdateForm" enctype="multipart/form-data">
-      <label for="bulkCampaign">Select Campaign:</label>
-      <select id="bulkCampaign" name="campaignId" required>
-        <option value="">Select a Campaign</option>
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="upload">Upload Leads</button>
+      <button class="tab-btn" data-tab="send">Send Messages</button>
+      <button class="tab-btn" data-tab="update">Update Messages</button>
+      <button class="tab-btn" data-tab="pending">View Pending</button>
+      <button class="tab-btn" data-tab="users">Manage Users</button>
+    </div>
+
+    <section id="upload" class="tab-content active">
+      <h2>Upload Leads</h2>
+      <form id="uploadForm" enctype="multipart/form-data">
+        <label for="campaignName">Campaign Name:</label>
+        <input type="text" id="campaignName" name="campaignName" placeholder="e.g., Promo March 2025" required>
+        <label for="csvFile">CSV File (phoneNumber,name):</label>
+        <input type="file" id="csvFile" name="csvFile" accept=".csv" required>
+        <label for="messageContent">Message Content:</label>
+        <textarea id="messageContent" name="messageContent" placeholder="Enter your message here" required></textarea>
+        <label for="mediaFile">Media File (optional):</label>
+        <input type="file" id="mediaFile" name="mediaFile" accept="image/*,.pdf">
+        <button type="submit">Upload</button>
+      </form>
+      <div id="uploadStatus"></div>
+    </section>
+
+    <section id="send" class="tab-content">
+      <h2>Send Messages</h2>
+      <form id="sendForm">
+        <label for="sendCampaign">Select Campaign:</label>
+        <select id="sendCampaign" name="campaignId">
+          <option value="">All Campaigns</option>
+        </select>
+        <label for="batchSize">Batch Size:</label>
+        <input type="number" id="batchSize" name="batchSize" value="10" min="1" required>
+        <label for="minDelay">Min Delay (ms):</label>
+        <input type="number" id="minDelay" name="minDelay" value="1000" min="500" required>
+        <label for="maxDelay">Max Delay (ms):</label>
+        <input type="number" id="maxDelay" name="maxDelay" value="5000" min="500" required>
+        <label for="breakAfter">Break After (messages):</label>
+        <input type="number" id="breakAfter" name="breakAfter" value="50" min="1" required>
+        <label for="breakDuration">Break Duration (minutes):</label>
+        <input type="number" id="breakDuration" name="breakDuration" value="10" min="1" required>
+        <div class="button-group">
+          <button type="button" id="startBtn">Start Sending</button>
+          <button type="button" id="stopBtn">Stop Sending</button>
+        </div>
+      </form>
+      <div id="sendStatus"></div>
+    </section>
+
+    <section id="update" class="tab-content">
+      <h2>Update Messages</h2>
+      <form id="bulkUpdateForm" enctype="multipart/form-data">
+        <label for="bulkCampaign">Select Campaign:</label>
+        <select id="bulkCampaign" name="campaignId" required>
+          <option value="">Select a Campaign</option>
+        </select>
+        <label for="bulkContent">New Message Content (optional tactic):</label>
+        <textarea id="bulkContent" name="content" placeholder="Enter new message content"></textarea>
+        <label for="bulkMediaFile">New Media File (optional):</label>
+        <input type="file" id="bulkMediaFile" name="mediaFile" accept="image/*,.pdf">
+        <button type="submit">Update Campaign</button>
+        <button type="button" id="deleteCampaignBtn" class="delete-btn">Delete Campaign</button>
+      </form>
+      <div id="bulkUpdateStatus"></div>
+    </section>
+
+    <section id="pending" class="tab-content">
+      <h2>Pending Messages</h2>
+      <label for="filterCampaign">Filter by Campaign:</label>
+      <select id="filterCampaign">
+        <option value="">All Campaigns</option>
       </select>
-      <label for="bulkContent">New Message Content (optional):</label>
-      <textarea id="bulkContent" name="content" placeholder="Enter new message content"></textarea>
-      <label for="bulkMediaFile">New Media File (optional):</label>
-      <input type="file" id="bulkMediaFile" name="mediaFile" accept="image/*,.pdf">
-      <button type="submit">Update Campaign</button>
-      <button type="button" id="deleteCampaignBtn" class="delete-btn">Delete Campaign</button>
-    </form>
-    <div id="bulkUpdateStatus"></div>
-  </section>
+      <ul id="pendingList"></ul>
+      <div class="pagination">
+        <button id="prevPage" disabled>Previous</button>
+        <span id="pageInfo"></span>
+        <button id="nextPage">Next</button>
+      </div>
+    </section>
 
-  <section id="pending" class="tab-content">
-    <h2>Pending Messages</h2>
-    <label for="filterCampaign">Filter by Campaign:</label>
-    <select id="filterCampaign">
-      <option value="">All Campaigns</option>
-    </select>
-    <ul id="pendingList"></ul>
-  </section>
+    <section id="users" class="tab-content">
+      <h2>Manage Users</h2>
+      <form id="userForm">
+        <label for="newUsername">Username:</label>
+        <input type="text" id="newUsername" name="username" required>
+        <label for="newPassword">Password:</label>
+        <input type="password" id="newPassword" name="password" required>
+        <label for="userRole">Role:</label>
+        <select id="userRole" name="role" required>
+          <option value="superadmin">Super Admin</option>
+          <option value="admin">Admin</option>
+          <option value="agent">Agent</option>
+        </select>
+        <label for="userTeam" class="team-label">Team (Admin for Agent):</label>
+        <select id="userTeam" name="team" class="team-select">
+          <option value="">None</option>
+        </select>
+        <button type="submit">Add User</button>
+      </form>
+      <div id="userStatus"></div>
+    </section>
+  </div>
 
   <script src="script.js"></script>
 </body>
