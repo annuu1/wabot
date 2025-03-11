@@ -20,10 +20,18 @@ const Team = require('./models/Team');
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
+
+// Global variables for retry management and connection state
+const MAX_RETRIES = 3; // Maximum retry attempts per message
+const RETRY_BASE_DELAY = 5000; // Base delay in milliseconds (5 seconds)
+let reconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 5;
+let isConnected = false; // Custom flag to track connection state
 let sock;
 let isSending = false;
 
 const JWT_SECRET = 'your-secret-key'; // Replace with a secure key in production
+
 
 // Middleware
 app.use(bodyParser.json());
@@ -92,24 +100,49 @@ async function startBot() {
       console.log('Scan this QR:', qrcode.generate(qr, { small: true }));
       wss.clients.forEach(client => client.send(JSON.stringify({ type: 'qr', data: qr })));
     }
-    if (connection === 'open') console.log('Bot connected to WhatsApp!');
+    if (connection === 'open') {
+      console.log('Bot connected to WhatsApp!');
+      isConnected = true; // Set connection flag
+      reconnectAttempts = 0; // Reset reconnect attempts
+      isSending = false; // Reset sending state
+    }
     if (connection === 'close') {
-      const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-      if (shouldReconnect) setTimeout(startBot, 5000);
-      else console.log('Logged out. Please re-authenticate.');
+      isConnected = false; // Clear connection flag
+      const statusCode = lastDisconnect?.error?.output?.statusCode;
+      const shouldReconnect = statusCode !== DisconnectReason.loggedOut && reconnectAttempts < MAX_RECONNECT_ATTEMPTS;
+      if (shouldReconnect) {
+        reconnectAttempts++;
+        const delay = RETRY_BASE_DELAY * Math.pow(2, reconnectAttempts); // Exponential backoff
+        console.log(`Connection closed. Reconnecting in ${delay / 1000} seconds... (Attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
+        setTimeout(startBot, delay);
+      } else {
+        console.log('Max reconnect attempts reached or logged out. Please re-authenticate.');
+        sock = null; // Clear socket reference
+      }
     }
   });
 
   sock.ev.on('creds.update', saveCreds);
+
+  // Handle decryption errors (optional logging)
+  sock.ev.on('messages.upsert', (m) => {
+    // This is just to catch decryption errors in the logs, not directly related to sending
+    if (m.messages.some(msg => msg.error)) {
+      console.log('Message decryption error detected:', m.messages.filter(msg => msg.error));
+    }
+  });
 }
 
-// Send pending messages
+// Send pending messages with retry limits and connection checks
 async function sendPendingMessages(campaignId, teamId, batchSize = 10, minDelay = 1000, maxDelay = 5000, breakAfter = 50, breakDuration = 600000) {
-  if (!sock) return { status: 'error', message: 'WhatsApp not connected' };
+  if (!sock || !isConnected) { // Use custom isConnected flag
+    console.log('WhatsApp not connected. Waiting for reconnection...');
+    return { status: 'error', message: 'WhatsApp not connected' };
+  }
   if (!isSending) return { status: 'stopped', message: 'Sending stopped' };
 
   const query = { status: 'pending', team: teamId };
-  if (campaignId && campaignId !== '') query.campaignId = campaignId; // Only add campaignId if valid
+  if (campaignId && campaignId !== '') query.campaignId = campaignId;
   const pendingMessages = await Message.find(query).populate('customerId campaignId').limit(batchSize);
   let sentCount = 0;
 
@@ -118,33 +151,62 @@ async function sendPendingMessages(campaignId, teamId, batchSize = 10, minDelay 
       console.log('Sending stopped by user');
       return { status: 'stopped', sent: sentCount, message: 'Sending interrupted' };
     }
-    try {
-      if (!msg.campaignId) throw new Error('No campaign associated with message');
-      const jid = `${msg.phoneNumber}@s.whatsapp.net`;
-      const messageContent = msg.campaignId.filePath
-        ? { [msg.campaignId.fileType]: { url: msg.campaignId.filePath }, caption: msg.campaignId.content }
-        : { text: msg.campaignId.content };
-      await sock.sendMessage(jid, messageContent);
-      msg.status = 'sent';
-      msg.sentAt = new Date();
-      await msg.save();
-      console.log(`Sent to ${msg.phoneNumber}: ${msg.campaignId.content} (Campaign: ${msg.campaignId.name})`);
-      sentCount++;
-      broadcastStats(campaignId || null, teamId);
-      if (sentCount % breakAfter === 0 && sentCount < pendingMessages.length) {
-        console.log(`Taking a break for ${breakDuration / 60000} minutes...`);
-        await new Promise(resolve => setTimeout(resolve, breakDuration));
-      } else {
-        const delay = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
-        await new Promise(resolve => setTimeout(resolve, delay));
+
+    let retries = msg.retries || 0; // Track retries per message
+    let success = false;
+
+    while (retries < MAX_RETRIES && !success && isSending) {
+      try {
+        if (!msg.campaignId) throw new Error('No campaign associated with message');
+        if (!isConnected) throw new Error('Connection lost during sending');
+
+        const jid = `${msg.phoneNumber}@s.whatsapp.net`;
+        const messageContent = msg.campaignId.filePath
+          ? { [msg.campaignId.fileType]: { url: msg.campaignId.filePath }, caption: msg.campaignId.content }
+          : { text: msg.campaignId.content };
+
+        await sock.sendMessage(jid, messageContent);
+        msg.status = 'sent';
+        msg.sentAt = new Date();
+        success = true;
+      } catch (error) {
+        console.error(`Attempt ${retries + 1}/${MAX_RETRIES} failed for ${msg.phoneNumber}:`, error.message);
+        retries++;
+        msg.retries = retries;
+
+        if (retries >= MAX_RETRIES) {
+          msg.status = 'failed';
+          console.log(`Max retries reached for ${msg.phoneNumber}. Marking as failed.`);
+        } else {
+          const retryDelay = RETRY_BASE_DELAY * Math.pow(2, retries); // Exponential backoff
+          console.log(`Retrying in ${retryDelay / 1000} seconds...`);
+          await new Promise(resolve => setTimeout(resolve, retryDelay));
+          continue;
+        }
       }
-    } catch (error) {
-      console.error(`Failed to send to ${msg.phoneNumber}:`, error);
-      msg.status = 'failed';
+
       await msg.save();
-      broadcastStats(campaignId || null, teamId);
+      if (success) {
+        console.log(`Sent to ${msg.phoneNumber}: ${msg.campaignId.content} (Campaign: ${msg.campaignId.name})`);
+        sentCount++;
+        broadcastStats(campaignId || null, teamId);
+      } else {
+        broadcastStats(campaignId || null, teamId);
+      }
+
+      // Apply delay or break logic only on success
+      if (success) {
+        if (sentCount % breakAfter === 0 && sentCount < pendingMessages.length) {
+          console.log(`Taking a break for ${breakDuration / 60000} minutes...`);
+          await new Promise(resolve => setTimeout(resolve, breakDuration));
+        } else {
+          const delay = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
     }
   }
+
   return { status: 'success', sent: sentCount };
 }
 
@@ -277,7 +339,6 @@ app.post('/api/upload', authenticate, authorize(['superadmin', 'admin']), upload
 app.post('/api/start', authenticate, authorize(['superadmin', 'admin', 'agent']), async (req, res) => {
   const { campaignId, batchSize, minDelay, maxDelay, breakAfter, breakDuration } = req.body;
 
-  // Validate campaignId if provided
   if (campaignId && campaignId !== '') {
     if (!mongoose.Types.ObjectId.isValid(campaignId)) {
       return res.status(400).json({ error: 'Invalid campaign ID' });
@@ -288,7 +349,6 @@ app.post('/api/start', authenticate, authorize(['superadmin', 'admin', 'agent'])
     return res.status(403).json({ error: 'User must belong to a team' });
   }
 
-  // For Agents, ensure campaign belongs to their team
   if (req.user.role === 'agent' && campaignId) {
     const campaign = await Campaign.findOne({ _id: campaignId, team: req.user.team });
     if (!campaign) {
@@ -301,7 +361,7 @@ app.post('/api/start', authenticate, authorize(['superadmin', 'admin', 'agent'])
 
   try {
     const result = await sendPendingMessages(
-      campaignId || null, // Pass null if empty or undefined
+      campaignId || null,
       req.user.team?._id,
       parseInt(batchSize) || 10,
       parseInt(minDelay) || 1000,
