@@ -201,6 +201,7 @@ async function sendPendingMessages(campaignId, teamId, batchSize = 10, minDelay 
           await new Promise(resolve => setTimeout(resolve, breakDuration));
         } else {
           const delay = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
+          console.log(`Sending next message in ${delay / 1000} seconds...`);
           await new Promise(resolve => setTimeout(resolve, delay));
         }
       }
