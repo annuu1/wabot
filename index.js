@@ -7,6 +7,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const csv = require('csv-parse');
+const { parseContactsFile } = require('./utils/fileParser');
 const WebSocket = require('ws');
 const http = require('http');
 const jwt = require('jsonwebtoken');
@@ -295,7 +296,7 @@ app.post('/api/upload', authenticate, authorize(['superadmin', 'admin']), upload
   const mediaFile = req.files['mediaFile']?.[0];
 
   if (!csvFile || !messageContent || !campaignName) {
-    return res.status(400).json({ error: 'CSV file, message content, and campaign name are required' });
+    return res.status(400).json({ error: 'CSV/Excel file, message content, and campaign name are required' });
   }
   if (req.user.role === 'admin' && !req.user.team) {
     return res.status(403).json({ error: 'Admin must belong to a team' });
@@ -311,33 +312,41 @@ app.post('/api/upload', authenticate, authorize(['superadmin', 'admin']), upload
   });
   await campaign.save();
 
-  const phoneNumbers = [];
-  fs.createReadStream(csvFile.path)
-    .pipe(csv.parse({ columns: true, trim: true }))
-    .on('data', (row) => {
-      if (row.phoneNumber) phoneNumbers.push({ phoneNumber: row.phoneNumber, name: row.name || 'Unknown' });
-    })
-    .on('end', async () => {
-      for (const { phoneNumber, name } of phoneNumbers) {
-        let customer = await Customer.findOne({ phoneNumber, team: req.user.team?._id });
-        if (!customer) {
-          customer = new Customer({ phoneNumber, name, team: req.user.team?._id });
-          await customer.save();
-        }
-        const message = new Message({
-          customerId: customer._id,
-          campaignId: campaign._id,
-          phoneNumber,
-          team: req.user.team?._id,
-        });
-        await message.save();
+  let contacts = [];
+  try {
+    contacts = await parseContactsFile(csvFile.path, csvFile.mimetype);
+  } catch (err) {
+    fs.unlinkSync(csvFile.path);
+    if (mediaFile && fs.existsSync(mediaFile.path)) fs.unlinkSync(mediaFile.path);
+    return res.status(400).json({ error: err.message });
+  }
+
+  let addedCount = 0;
+  try {
+    for (const { phoneNumber, name } of contacts) {
+      let customer = await Customer.findOne({ phoneNumber, team: req.user.team?._id });
+      if (!customer) {
+        customer = new Customer({ phoneNumber, name, team: req.user.team?._id });
+        await customer.save();
       }
-      fs.unlinkSync(csvFile.path);
-      if (mediaFile) fs.renameSync(mediaFile.path, path.join(__dirname, 'uploads', mediaFile.filename));
-      res.status(201).json({ message: `${phoneNumbers.length} numbers added to campaign "${campaignName}"` });
-      broadcastStats(null, req.user.team?._id);
-    })
-    .on('error', (error) => res.status(500).json({ error: 'CSV parsing failed: ' + error.message }));
+      const message = new Message({
+        customerId: customer._id,
+        campaignId: campaign._id,
+        phoneNumber,
+        team: req.user.team?._id,
+      });
+      await message.save();
+      addedCount++;
+    }
+    fs.unlinkSync(csvFile.path);
+    if (mediaFile) fs.renameSync(mediaFile.path, path.join(__dirname, 'uploads', mediaFile.filename));
+    res.status(201).json({ message: `${addedCount} numbers added to campaign "${campaignName}"` });
+    broadcastStats(null, req.user.team?._id);
+  } catch (error) {
+    fs.unlinkSync(csvFile.path);
+    if (mediaFile && fs.existsSync(mediaFile.path)) fs.unlinkSync(mediaFile.path);
+    return res.status(500).json({ error: 'Failed to process contacts: ' + error.message });
+  }
 });
 
 // API: Start sending
