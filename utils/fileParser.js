@@ -77,4 +77,34 @@ function parseExcel(filePath) {
   }
 }
 
-module.exports = { parseContactsFile };
+function normalizeIndianPhoneNumber(input) {
+  if (!input) return '';
+  let phone = String(input).replace(/\D/g, ''); // Remove non-digits
+  if (phone.startsWith('91') && phone.length === 12) {
+    return phone;
+  }
+  // If starts with 0 and 11 digits, remove 0
+  if (phone.startsWith('0') && phone.length === 11) {
+    phone = phone.slice(1);
+  }
+  // If already 10 digits, prepend 91
+  if (phone.length === 10) {
+    phone = '91' + phone;
+  }
+  // If less than 12, pad left (rare, but for safety)
+  if (phone.length < 12) {
+    phone = phone.padStart(12, '0');
+  }
+  // If more than 12, take last 10 and prepend 91
+  if (phone.length > 12) {
+    phone = '91' + phone.slice(-10);
+  }
+  // Final check
+  if (!phone.startsWith('91') || phone.length !== 12) {
+    throw new Error('Invalid phone number after normalization');
+  }
+  return phone;
+}
+
+module.exports = { parseContactsFile, normalizeIndianPhoneNumber };
+

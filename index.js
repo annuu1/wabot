@@ -7,7 +7,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const csv = require('csv-parse');
-const { parseContactsFile } = require('./utils/fileParser');
+const { parseContactsFile, normalizeIndianPhoneNumber } = require('./utils/fileParser');
 const WebSocket = require('ws');
 const http = require('http');
 const jwt = require('jsonwebtoken');
@@ -161,7 +161,20 @@ async function sendPendingMessages(campaignId, teamId, batchSize = 10, minDelay 
         if (!msg.campaignId) throw new Error('No campaign associated with message');
         if (!isConnected) throw new Error('Connection lost during sending');
 
-        const jid = `${msg.phoneNumber}@s.whatsapp.net`;
+        // Normalize phone number before sending
+        let normalizedPhone;
+        try {
+          normalizedPhone = normalizeIndianPhoneNumber(msg.phoneNumber);
+        } catch (normErr) {
+          msg.status = 'failed';
+          msg.retries = retries + 1;
+          await msg.save();
+          console.error(`Normalization failed for ${msg.phoneNumber}:`, normErr.message);
+          broadcastStats(campaignId || null, teamId);
+          break; // Skip sending for this message
+        }
+
+        const jid = `${normalizedPhone}@s.whatsapp.net`;
         const messageContent = msg.campaignId.filePath
           ? { [msg.campaignId.fileType]: { url: msg.campaignId.filePath }, caption: msg.campaignId.content }
           : { text: msg.campaignId.content };
