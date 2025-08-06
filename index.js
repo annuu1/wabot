@@ -91,7 +91,7 @@ async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState('auth_info');
   sock = makeWASocket({
     auth: state,
-    printQRInTerminal: false,
+    printQRInTerminal: true,
     logger: require('pino')({ level: 'warn' }),
   });
 
